@@ -105,7 +105,7 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
     let mut svg = String::with_capacity(48_000);
     writeln!(
         svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 128 128" role="img" aria-label="RadialCode">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 128 128" role="img" aria-label="RCode">"#,
         options.size, options.size
     )
     .unwrap();
@@ -157,11 +157,11 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
         let png = encode_logo_png(&logo)?;
         let encoded = base64::engine::general_purpose::STANDARD.encode(png);
         svg.push_str(
-            r#"<defs><clipPath id="radialcode-logo-clip"><circle cx="64" cy="64" r="20"/></clipPath></defs>"#,
+            r#"<defs><clipPath id="rcode-logo-clip"><circle cx="64" cy="64" r="20"/></clipPath></defs>"#,
         );
         writeln!(
             svg,
-            r##"<image x="44" y="44" width="40" height="40" preserveAspectRatio="none" href="data:image/png;base64,{encoded}" clip-path="url(#radialcode-logo-clip)"/>"##
+            r##"<image x="44" y="44" width="40" height="40" preserveAspectRatio="none" href="data:image/png;base64,{encoded}" clip-path="url(#rcode-logo-clip)"/>"##
         )
         .unwrap();
     }
@@ -574,6 +574,6 @@ mod tests {
         };
         let svg = render_svg(&symbol, &options).unwrap();
         assert!(svg.contains("data:image/png;base64,"));
-        assert!(svg.contains("radialcode-logo-clip"));
+        assert!(svg.contains("rcode-logo-clip"));
     }
 }

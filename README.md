@@ -1,4 +1,4 @@
-# RadialCode
+# RCode
 
 Rust 实现的开放圆形异形码，支持编码、图片解码，以及本地网页工作台。采用放射线条、三个圆形牛眼和独立中央 Logo 留白。自定义码制不兼容微信或标准 QR 扫码器。
 
@@ -13,7 +13,7 @@ cargo run --release -- serve
 打开 http://127.0.0.1:8787 。编码页输入文本并调整圆点/放射线、深色前景色、尺寸及 Logo；下载 PNG/SVG，或点击“验证当前码”。解码页支持选择、拖放和粘贴 PNG/JPEG。耐受实验对真实像素进行旋转、缩放和加噪，再调用同一解码器。
 
 ```sh
-cargo run --release -- encode --text '你好，RadialCode 👋' --output code.png
+cargo run --release -- encode --text '你好，RCode 👋' --output code.png
 cargo run --release -- encode --text 'https://example.com' --output code.svg --style dots
 cargo run --release -- decode code.png
 cargo run --release -- serve --port 8788
@@ -24,8 +24,8 @@ cargo run --release -- serve --port 8788
 ## 库
 
 ```rust
-use radialcode::{encode_with_profile, Profile, render_png, decode_image, RenderOptions};
-fn main() -> radialcode::Result<()> {
+use rcode::{encode_with_profile, Profile, render_png, decode_image, RenderOptions};
+fn main() -> rcode::Result<()> {
     let symbol = encode_with_profile("你好".as_bytes(), Profile::default())?;
     let png = render_png(&symbol, &RenderOptions::default())?;
     assert_eq!(decode_image(&png)?.payload, "你好".as_bytes());

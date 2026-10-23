@@ -7,7 +7,7 @@ use std::process;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use radialcode::{
+use rcode::{
     EccLevel, MAX_PAYLOAD, Profile, RenderOptions, Style, encode_with_profile, render_png,
     render_svg,
 };
@@ -120,7 +120,7 @@ fn run_decode(args: Vec<String>) -> Result<(), String> {
     }
     let path = &args[0];
     let image = fs::read(path).map_err(|error| format!("read `{path}`: {error}"))?;
-    let decoded = radialcode::decode_image(&image).map_err(|error| error.to_string())?;
+    let decoded = rcode::decode_image(&image).map_err(|error| error.to_string())?;
     if let Ok(text) = std::str::from_utf8(&decoded.payload) {
         println!("{text}");
     } else {
@@ -192,15 +192,15 @@ fn hex_nibble(byte: u8) -> Option<u8> {
 }
 
 fn usage() -> String {
-    "usage: radialcode <encode|decode|serve> [options]".to_owned()
+    "usage: rcode <encode|decode|serve> [options]".to_owned()
 }
 
 fn print_usage() {
     println!(
-        "radialcode\n\n\
-         Encode: radialcode encode --text TEXT --output code.png [--spokes 72] [--ecc L|M|Q|H] [--size 768] [--style lines|dots] [--foreground #111827] [--logo logo.png]\n\
-         Decode: radialcode decode code.png\n\
-         Serve:  radialcode serve [--port 8787]\n"
+        "rcode\n\n\
+         Encode: rcode encode --text TEXT --output code.png [--spokes 72] [--ecc L|M|Q|H] [--size 768] [--style lines|dots] [--foreground #111827] [--logo logo.png]\n\
+         Decode: rcode decode code.png\n\
+         Serve:  rcode serve [--port 8787]\n"
     );
 }
 

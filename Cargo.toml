@@ -1,10 +1,10 @@
 [package]
-name = "radialcode"
+name = "rcode"
 version = "0.1.0"
 edition = "2024"
 description = "An open radial visual code with a local encoding and decoding workbench"
 license = "MIT"
-repository = "https://github.com/charles0122/radialcode"
+repository = "https://github.com/charles0122/rcode"
 
 [lib]
 path = "src/lib.rs"

@@ -5,7 +5,7 @@ use crc32fast::Hasher;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops;
 use image::{ColorType, DynamicImage, ImageEncoder, ImageFormat, Rgba, RgbaImage};
-use radialcode::{DecodeResult, Error, RenderOptions, Style, decode_image, encode, render_png};
+use rcode::{DecodeResult, Error, RenderOptions, Style, decode_image, encode, render_png};
 
 const TEST_SIZE: u32 = 768;
 
@@ -16,11 +16,7 @@ fn png_roundtrip_covers_utf8_binary_boundary_and_styles() {
     for _ in 0..128 {
         random.push(rng.next_u8());
     }
-    let payloads = vec![
-        Vec::new(),
-        "你好，RadialCode 🌀".as_bytes().to_vec(),
-        random,
-    ];
+    let payloads = vec![Vec::new(), "你好，RCode 🌀".as_bytes().to_vec(), random];
 
     for style in [Style::Dots, Style::Lines] {
         for payload in &payloads {
@@ -397,7 +393,7 @@ fn _assert_result_shape(result: &DecodeResult) {
 
 #[test]
 fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() {
-    use radialcode::{EccLevel, Profile, encode_with_profile, render_svg};
+    use rcode::{EccLevel, Profile, encode_with_profile, render_svg};
     for spokes in [36, 54, 72] {
         for level in EccLevel::ALL {
             let profile = Profile::new(spokes, level).unwrap();
@@ -439,7 +435,7 @@ fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() 
 
 #[test]
 fn original_v2_locator_proportions_remain_decodable() {
-    use radialcode::{EccLevel, Profile};
+    use rcode::{EccLevel, Profile};
     let decoded = decode_image(include_bytes!("fixtures/v2-original54m.png")).unwrap();
     assert_eq!(decoded.payload, b"RadialCode");
     assert_eq!(
@@ -450,7 +446,7 @@ fn original_v2_locator_proportions_remain_decodable() {
 
 #[test]
 fn previous_refined_v2_proportions_remain_decodable() {
-    use radialcode::{EccLevel, Profile};
+    use rcode::{EccLevel, Profile};
     let decoded = decode_image(include_bytes!("fixtures/v2-refined54m.png")).unwrap();
     assert_eq!(decoded.payload, b"RadialCode");
     assert_eq!(
@@ -461,7 +457,7 @@ fn previous_refined_v2_proportions_remain_decodable() {
 
 #[test]
 fn every_spoke_has_the_same_visible_inner_boundary() {
-    use radialcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile, encode_with_profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
@@ -502,7 +498,7 @@ fn every_spoke_has_the_same_visible_inner_boundary() {
 
 #[test]
 fn dots_keep_visible_radial_gaps() {
-    use radialcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile, encode_with_profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
@@ -523,7 +519,7 @@ fn dots_keep_visible_radial_gaps() {
                     for ring in 0..21 {
                         let radius = 25.75 + 1.5 * ring as f64;
                         let (x, y) = (radius * angle.cos(), radius * angle.sin());
-                        if radialcode::geometry::LOCATORS
+                        if rcode::geometry::LOCATORS
                             .iter()
                             .any(|(lx, ly)| (x - lx).hypot(y - ly) < 11.)
                         {
@@ -548,7 +544,7 @@ fn dots_keep_visible_radial_gaps() {
 
 #[test]
 fn dense_inner_spokes_keep_visible_gaps_at_minimum_size() {
-    use radialcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile, encode_with_profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {

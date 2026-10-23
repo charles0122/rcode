@@ -1,4 +1,4 @@
-//! RadialCode: a small, deterministic circular code with an image renderer.
+//! RCode: a small, deterministic circular code with an image renderer.
 //!
 //! The v1 wire format is intentionally simple: a fixed 138-byte frame is
 //! protected by 64 Reed-Solomon parity bytes and mapped onto the 1,828 slots

@@ -1,4 +1,4 @@
-# RadialCode v1
+# RCode v1
 
 本协议为本项目自行定义的开放码制。视觉与定位思路参考腾讯的小程序码设计文章：https://developer.cloud.tencent.com/article/1005027 。不兼容腾讯私有协议。
 

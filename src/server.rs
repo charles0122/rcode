@@ -3,7 +3,7 @@ use std::io::{Cursor, Read};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use radialcode::{
+use rcode::{
     EccLevel, MAX_PAYLOAD, Profile, RenderOptions, Style, encode_with_profile, render_png,
     render_svg,
 };
@@ -26,7 +26,7 @@ pub fn run(port: u16) -> Result<(), Box<dyn StdError + Send + Sync>> {
         return Err("port must be between 1 and 65535".into());
     }
     let server = Server::http(("127.0.0.1", port))?;
-    println!("radialcode workbench: http://127.0.0.1:{port}/");
+    println!("rcode workbench: http://127.0.0.1:{port}/");
     for request in server.incoming_requests() {
         // ponytail: one synchronous worker keeps the local one-user server small; add a pool if throughput matters.
         handle_request(request, port);
@@ -147,7 +147,7 @@ fn handle_encode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
             .as_deref()
             .unwrap_or("M")
             .parse()
-            .map_err(|e: radialcode::Error| json_error(400, &e.to_string()))?,
+            .map_err(|e: rcode::Error| json_error(400, &e.to_string()))?,
     )
     .map_err(|e| json_error(400, &e.to_string()))?;
     let options = RenderOptions {
@@ -184,7 +184,7 @@ fn handle_decode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
             }
         }
     }
-    let decoded = radialcode::decode_image(&body)
+    let decoded = rcode::decode_image(&body)
         .map_err(|_| status_response(422, "unable to decode radial code"))?;
     let text = std::str::from_utf8(&decoded.payload)
         .ok()

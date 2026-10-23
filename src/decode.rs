@@ -45,7 +45,7 @@ pub(crate) fn read_image(bytes: &[u8]) -> Result<DynamicImage> {
         .map_err(|e| Error::InvalidImage(e.to_string()))
 }
 
-/// Locate and decode one complete RadialCode v1 using only image pixels.
+/// Locate and decode one complete RCode v1 using only image pixels.
 pub fn decode_image(bytes: &[u8]) -> Result<DecodeResult> {
     let image = read_image(bytes)?;
     let (width, height) = (image.width(), image.height());

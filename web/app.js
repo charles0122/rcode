@@ -191,7 +191,7 @@
       response = await fetch(path, options);
     } catch (error) {
       if (error && error.name === "AbortError") throw error;
-      throw new ApiError("无法连接本机服务，请确认 RadialCode 已启动。");
+      throw new ApiError("无法连接本机服务，请确认 RCode 已启动。");
     }
     let body = null;
     try {
@@ -306,8 +306,8 @@
     state.generated = { pngBlob, pngUrl, svgText, svgUrl, byteLength: Number(payload.byte_length) || byteLength(options.text), size: options.size };
     refs.encodePngImage.src = pngUrl;
     refs.encodeSvgImage.src = svgUrl;
-    refs.encodePngImage.alt = `生成的 ${options.size}px RadialCode PNG`;
-    refs.encodeSvgImage.alt = `生成的 ${options.size}px RadialCode SVG`;
+    refs.encodePngImage.alt = `生成的 ${options.size}px RCode PNG`;
+    refs.encodeSvgImage.alt = `生成的 ${options.size}px RCode SVG`;
     refs.encodeEmpty.hidden = true;
     refs.outputBytes.textContent = String(state.generated.byteLength);
     refs.outputSize.textContent = `${options.size}px`;

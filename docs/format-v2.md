@@ -1,4 +1,4 @@
-# RadialCode v2：36 / 54 / 72 线，L / M / Q / H
+# RCode v2：36 / 54 / 72 线，L / M / Q / H
 
 借鉴腾讯公开的版本与纠错分级思路：https://developer.cloud.tencent.com/article/1005027 。采用自有几何、字节帧和 Reed–Solomon 参数，不兼容微信码。
 
