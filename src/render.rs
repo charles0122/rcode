@@ -99,7 +99,7 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
         "#{:02x}{:02x}{:02x}",
         options.foreground[0], options.foreground[1], options.foreground[2]
     );
-    let slots = geometry::slots_for_spokes(symbol.profile.map_or(96, |p| p.spokes()));
+    let slots = geometry::slots_for_spokes(symbol.profile.spokes());
     let bits = slot_bits(symbol, &slots)?;
     let radius = stroke_radius(symbol, options.style);
     let mut svg = String::with_capacity(48_000);
@@ -113,7 +113,7 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
     // The clear disc keeps a future renderer from placing content below a logo.
     svg.push_str(r##"<circle cx="64" cy="64" r="22" fill="#fff"/>"##);
 
-    for [start, end] in inner_leads(symbol, options.style, &slots, &bits, radius) {
+    for [start, end] in inner_leads(options.style, &slots, &bits, radius) {
         let (x1, y1) = svg_point(start.0, start.1);
         let (x2, y2) = svg_point(end.0, end.1);
         let width = radius * 2.0;
@@ -151,7 +151,7 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
         }
     }
 
-    append_svg_locators(&mut svg, &fg, locator_radii(symbol));
+    append_svg_locators(&mut svg, &fg, geometry::LOCATOR_RADII);
     if let Some(bytes) = &options.logo {
         let logo = load_logo(bytes)?;
         let png = encode_logo_png(&logo)?;
@@ -170,7 +170,7 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
 }
 
 fn validate_symbol(symbol: &Symbol) -> Result<()> {
-    let expected = symbol.profile.map_or(202, |p| p.codeword_len());
+    let expected = symbol.profile.codeword_len();
     if symbol.codeword.len() != expected {
         return Err(Error::InvalidOptions(format!(
             "symbol codeword has {} bytes; expected {expected}",
@@ -240,12 +240,12 @@ fn draw_symbol(
     scale: f64,
 ) -> Result<()> {
     let fg = foreground(options);
-    let slots = geometry::slots_for_spokes(symbol.profile.map_or(96, |p| p.spokes()));
+    let slots = geometry::slots_for_spokes(symbol.profile.spokes());
     let bits = slot_bits(symbol, &slots)?;
     let radius = stroke_radius(symbol, options.style);
 
     draw_circle(image, point(0.0, 0.0, scale), 22.0 * scale, white());
-    for [start, end] in inner_leads(symbol, options.style, &slots, &bits, radius) {
+    for [start, end] in inner_leads(options.style, &slots, &bits, radius) {
         draw_capsule(
             image,
             point(start.0, start.1, scale),
@@ -279,7 +279,7 @@ fn draw_symbol(
         }
     }
 
-    draw_locators(image, scale, fg, locator_radii(symbol));
+    draw_locators(image, scale, fg, geometry::LOCATOR_RADII);
     if let Some(bytes) = &options.logo {
         draw_logo(image, bytes, scale)?;
     }
@@ -288,16 +288,7 @@ fn draw_symbol(
 
 // A fixed non-data contour gives every spoke the same visible inner edge.
 // It ends before the first data sample at radius 25 unless that sample is black.
-fn inner_leads(
-    symbol: &Symbol,
-    style: Style,
-    slots: &[Slot],
-    bits: &[bool],
-    radius: f64,
-) -> Vec<[(f64, f64); 2]> {
-    if symbol.profile.is_none() {
-        return Vec::new();
-    }
+fn inner_leads(style: Style, slots: &[Slot], bits: &[bool], radius: f64) -> Vec<[(f64, f64); 2]> {
     slots
         .iter()
         .zip(bits)
@@ -318,9 +309,7 @@ fn inner_leads(
 }
 
 fn stroke_radius(symbol: &Symbol, style: Style) -> f64 {
-    let Some(profile) = symbol.profile else {
-        return 0.5;
-    };
+    let profile = symbol.profile;
     // Samples are 1.5 units apart; leave 0.4 units between round dots.
     if style == Style::Dots {
         return 0.55;
@@ -332,38 +321,20 @@ fn stroke_radius(symbol: &Symbol, style: Style) -> f64 {
     }
 }
 
-fn locator_radii(symbol: &Symbol) -> [f64; 3] {
-    if symbol.profile.is_some() {
-        geometry::LOCATOR_RADII
-    } else {
-        geometry::LEGACY_LOCATOR_RADII
-    }
-}
-
 fn draw_locators(image: &mut RgbaImage, scale: f64, fg: Rgba<u8>, radii: [f64; 3]) {
-    for (index, (x, y)) in geometry::LOCATORS.iter().enumerate() {
-        let [outer, opening, core] = if index == 3 {
-            geometry::LEGACY_LOCATOR_RADII
-        } else {
-            radii
-        };
-        let center = point(*x, *y, scale);
+    for (x, y) in geometry::LOCATORS {
+        let [outer, opening, core] = radii;
+        let center = point(x, y, scale);
         draw_circle(image, center, outer * scale, fg);
         draw_circle(image, center, opening * scale, white());
-        if index < 3 {
-            draw_circle(image, center, core * scale, fg);
-        }
+        draw_circle(image, center, core * scale, fg);
     }
 }
 
 fn append_svg_locators(svg: &mut String, fg: &str, radii: [f64; 3]) {
-    for (index, (x, y)) in geometry::LOCATORS.iter().enumerate() {
-        let [outer, opening, core] = if index == 3 {
-            geometry::LEGACY_LOCATOR_RADII
-        } else {
-            radii
-        };
-        let (cx, cy) = svg_point(*x, *y);
+    for (x, y) in geometry::LOCATORS {
+        let [outer, opening, core] = radii;
+        let (cx, cy) = svg_point(x, y);
         writeln!(
             svg,
             r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{outer}" fill="{fg}"/>"#
@@ -374,13 +345,11 @@ fn append_svg_locators(svg: &mut String, fg: &str, radii: [f64; 3]) {
             r##"<circle cx="{cx:.4}" cy="{cy:.4}" r="{opening}" fill="#fff"/>"##
         )
         .unwrap();
-        if index < 3 {
-            writeln!(
-                svg,
-                r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{core}" fill="{fg}"/>"#
-            )
-            .unwrap();
-        }
+        writeln!(
+            svg,
+            r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{core}" fill="{fg}"/>"#
+        )
+        .unwrap();
     }
 }
 
@@ -515,7 +484,7 @@ mod tests {
 
     #[test]
     fn png_dimensions_and_svg_styles() {
-        let symbol = encode(b"render").unwrap();
+        let symbol = encode(b"render", crate::Profile::default()).unwrap();
         let options = RenderOptions {
             size: 384,
             ..RenderOptions::default()
@@ -535,12 +504,12 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(!dots.contains("stroke-linecap=\"round\""));
+        assert!(dots.contains("stroke-linecap=\"round\""));
     }
 
     #[test]
     fn options_and_logo_are_bounded() {
-        let symbol = encode(b"logo").unwrap();
+        let symbol = encode(b"logo", crate::Profile::default()).unwrap();
         assert!(matches!(
             render_png(
                 &symbol,

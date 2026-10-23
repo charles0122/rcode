@@ -1,2 +1,8 @@
 /target/
 /artifacts/
+/dist/core/
+/mobile/apple/.build/
+/mobile/android/.gradle/
+/mobile/android/**/build/
+/mobile/android/**/.cxx/
+/mobile/android/local.properties

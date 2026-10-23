@@ -16,7 +16,7 @@
 
 | 码制 | 图案直接表示的内容 | 可公开确认的容量 | 纠错信息 | 是否开放、离线 | 主要限制 |
 | --- | --- | --- | --- | --- | --- |
-| **RCode v2** | 任意二进制内容 | 36/54/72 线、四档组合下为 **13–124 字节**；默认 72-M 为 **108 字节** | Reed–Solomon；L/M/Q/H 目标 10%/15%/25%/35%，可精确纠正 9–61 个未知位置错误码字节 | MIT 开源；生成和解码均可离线 | 目前是项目自有码制；不被微信、抖音或通用 QR 扫码器识别 |
+| **RCode v3** | 任意二进制内容 | 36/54/72 线、四档组合下为 **13–124 字节**；默认 72-M 为 **108 字节** | Reed–Solomon；L/M/Q/H 目标 10%/15%/25%/35%，可精确纠正 9–61 个未知位置错误码字节 | MIT 开源；生成和解码均可离线 | 目前是项目自有码制；不被微信、抖音或通用 QR 扫码器识别 |
 | **微信小程序码** | 微信小程序及页面入口；底层协议私有 | 历史公开设计表的最大二进制容量为 **11–43 字节**。当前 `getUnlimitedQRCode` 的业务 `scene` 参数最多 **32 个可见字符**；另一个 `getQRCode` 接口的 `path` 最多 **128 字节**，两者都不能直接当作底层码容量 | 历史设计资料公开 L/M/Q/H 约 10%/15%/25%/35%；当前 API 不让调用方直接选择底层版本和档位 | 微信服务端生成；官方识别入口是微信 | 依赖微信应用、帐号和服务端；协议不是开放标准 |
 | **抖音码** | 字节系小程序/小游戏页面入口 | 当前生成接口接收 `path`，公开页面没有给出码内净载荷或固定字符上限 | 未公开 | 抖音服务端生成；圆形抖音码仅字节系 App 识别 | 同一接口也可生成通用二维码；通用二维码与圆形抖音码的识别范围不同 |
 | **Apple App Clip Code** | 一个 HTTPS App Clip invocation URL | Apple 明确说明 URL 会压缩，能编码的确切长度取决于字符和词汇；生成工具负责判断是否过长，没有固定公开字节上限 | 未公开 | Apple 工具生成；iOS 14.3+ Camera/Code Scanner 识别；可选 NFC | URL 字符集和格式受限；需要 App Clip experience 与 Apple 生态 |
@@ -66,7 +66,7 @@ RCode 的总码字长度分别为 87、130、172 字节。设总码字长度为 
 
 ## 来源
 
-- RCode：[v2 协议、容量与纠错公式](format-v2.md)
+- RCode：[v3 协议、容量与纠错公式](format.md)
 - 微信：[小程序码设计篇：菊花绽放](https://developer.cloud.tencent.com/article/1005027)（历史设计、容量与纠错）；[getUnlimitedQRCode](https://developers.weixin.qq.com/miniprogram/dev/OpenApiDoc/qrcode-link/qr-code/getUnlimitedQRCode.html) 与 [getQRCode](https://developers.weixin.qq.com/miniprogram/dev/OpenApiDoc/qrcode-link/qr-code/getQRCode.html)（当前生成接口）
 - 抖音：[获取小程序码](https://developer.open-douyin.com/docs/resource/zh-CN/thirdparty/API/smallprogram/auth-app-manage/base-info/get-qrcode)
 - Apple：[Creating App Clip Codes](https://developer.apple.com/documentation/appclip/creating-app-clip-codes)、[Encoding a URL in an App Clip Code](https://developer.apple.com/documentation/appclip/encoding-a-url-in-an-app-clip-code)、[App Clip Code 尺寸指南](https://developer.apple.com/design/human-interface-guidelines/app-clips)

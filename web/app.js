@@ -511,7 +511,7 @@
     if (target === "decode") {
       refs.decodeResult.hidden = false;
       const p = result.profile;
-      $("decode-profile").textContent = p ? `${p.spokes} 线 · ${p.ecc} 档 · 可纠正 ${p.correctable_bytes} 个码字节` : "旧版 v1 · 96 线";
+      $("decode-profile").textContent = `${p.spokes} 线 · ${p.ecc} 档 · 可纠正 ${p.correctable_bytes} 个码字节`;
       refs.decodeContentKind.textContent = content.isText ? "UTF-8 文本" : "二进制 · Base64";
       refs.decodeContent.textContent = content.content;
       refs.decodeBytes.textContent = String(result.byte_length ?? "—");

@@ -5,22 +5,78 @@ use crc32fast::Hasher;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops;
 use image::{ColorType, DynamicImage, ImageEncoder, ImageFormat, Rgba, RgbaImage};
-use rcode::{DecodeResult, Error, RenderOptions, Style, decode_image, encode, render_png};
+use rcode::{
+    DecodeResult, Error, Profile, RenderOptions, Style, decode_image, decode_luma8, encode,
+    render_png,
+};
 
 const TEST_SIZE: u32 = 768;
 
 #[test]
+fn luma8_decodes_packed_and_padded_camera_frames() {
+    let payload = b"camera luma";
+    let symbol = encode(payload, Profile::default()).unwrap();
+    let png = render_png(
+        &symbol,
+        &RenderOptions {
+            size: TEST_SIZE,
+            ..RenderOptions::default()
+        },
+    )
+    .unwrap();
+    let gray = image::load_from_memory(&png).unwrap().to_luma8();
+    let packed = gray.as_raw();
+    let decoded = decode_luma8(packed, TEST_SIZE, TEST_SIZE, TEST_SIZE as usize).unwrap();
+    assert_eq!(decoded.payload, payload);
+    assert_eq!((decoded.width, decoded.height), (TEST_SIZE, TEST_SIZE));
+    assert_eq!(decoded.landmarks.len(), 4);
+
+    let stride = TEST_SIZE as usize + 13;
+    let mut padded = vec![255; stride * TEST_SIZE as usize];
+    for y in 0..TEST_SIZE as usize {
+        padded[y * stride..y * stride + TEST_SIZE as usize]
+            .copy_from_slice(&packed[y * TEST_SIZE as usize..(y + 1) * TEST_SIZE as usize]);
+    }
+    assert_eq!(
+        decode_luma8(&padded, TEST_SIZE, TEST_SIZE, stride)
+            .unwrap()
+            .payload,
+        payload
+    );
+}
+
+#[test]
+fn luma8_rejects_invalid_dimensions_stride_and_buffer() {
+    let pixels = vec![0; 16];
+    for (width, height, stride, input) in [
+        (0, 2, 2, pixels.as_slice()),
+        (2, 0, 2, pixels.as_slice()),
+        (1, 2, 1, pixels.as_slice()),
+        (2, 1, 2, pixels.as_slice()),
+        (3, 2, 2, pixels.as_slice()),
+        (3, 2, 3, &pixels[..4]),
+        (2, 2, usize::MAX, pixels.as_slice()),
+        (4001, 4000, 4001, pixels.as_slice()),
+    ] {
+        assert!(matches!(
+            decode_luma8(input, width, height, stride),
+            Err(Error::InvalidImage(_))
+        ));
+    }
+}
+
+#[test]
 fn png_roundtrip_covers_utf8_binary_boundary_and_styles() {
-    let mut random = Vec::with_capacity(128);
+    let mut random = Vec::with_capacity(Profile::default().capacity());
     let mut rng = Rng::new(0x5eed_1234);
-    for _ in 0..128 {
+    for _ in 0..Profile::default().capacity() {
         random.push(rng.next_u8());
     }
     let payloads = vec![Vec::new(), "你好，RCode 🌀".as_bytes().to_vec(), random];
 
     for style in [Style::Dots, Style::Lines] {
         for payload in &payloads {
-            let symbol = encode(payload).expect("payload should fit v1");
+            let symbol = encode(payload, Profile::default()).expect("payload should fit");
             let png = render_png(
                 &symbol,
                 &RenderOptions {
@@ -37,15 +93,15 @@ fn png_roundtrip_covers_utf8_binary_boundary_and_styles() {
         }
     }
 
-    let too_long = vec![0u8; 129];
-    assert!(matches!(encode(&too_long), Err(Error::PayloadTooLong(129))));
+    let too_long = vec![0u8; Profile::default().capacity() + 1];
+    assert!(encode(&too_long, Profile::default()).is_err());
 }
 
 #[test]
 fn logo_is_decodable_without_changing_the_payload() {
     let logo = logo_png();
     for style in [Style::Dots, Style::Lines] {
-        let symbol = encode("logo stays in the centre".as_bytes()).unwrap();
+        let symbol = encode("logo stays in the centre".as_bytes(), Profile::default()).unwrap();
         let png = render_png(
             &symbol,
             &RenderOptions {
@@ -63,7 +119,7 @@ fn logo_is_decodable_without_changing_the_payload() {
 #[test]
 fn transformed_png_roundtrip_accepts_rotation_scale_and_translation() {
     let payload = "旋转、缩放、平移仍然可读".as_bytes();
-    let symbol = encode(payload).unwrap();
+    let symbol = encode(payload, Profile::default()).unwrap();
     let source = render_png(
         &symbol,
         &RenderOptions {
@@ -97,8 +153,61 @@ fn transformed_png_roundtrip_accepts_rotation_scale_and_translation() {
 }
 
 #[test]
+fn projective_warps_decode_from_four_locators() {
+    let payload = b"projective camera frame";
+    let profile = Profile::default();
+    let symbol = encode(payload, profile).unwrap();
+    let cases = [
+        (
+            [[48., 82.], [694., 38.], [726., 687.], [78., 648.]],
+            Style::Lines,
+        ),
+        (
+            [[67., 44.], [704., 128.], [657., 718.], [95., 665.]],
+            Style::Dots,
+        ),
+    ];
+    for (quad, style) in cases {
+        let edge = f64::from(TEST_SIZE - 1);
+        let forward = test_homography([[0., 0.], [edge, 0.], [edge, edge], [0., edge]], quad);
+        let source_locators = [[-34., -34.], [34., -34.], [34., 34.], [-34., 34.]]
+            .map(|[x, y]| [(x + 64.) / 128. * edge, (y + 64.) / 128. * edge]);
+        let projected = source_locators.map(|point| apply_homography(forward, point).unwrap());
+        let affine_closure_error =
+            ((projected[0][0] + projected[2][0] - projected[1][0] - projected[3][0]).powi(2)
+                + (projected[0][1] + projected[2][1] - projected[1][1] - projected[3][1]).powi(2))
+            .sqrt();
+        assert!(
+            affine_closure_error > 10.,
+            "warp should defeat a similarity model"
+        );
+        let source = image::load_from_memory(
+            &render_png(
+                &symbol,
+                &RenderOptions {
+                    size: TEST_SIZE,
+                    style,
+                    ..RenderOptions::default()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .to_rgba8();
+        let warped = projective_warp(&source, quad);
+        let png = png_bytes(warped);
+        let decoded = decode_image(&png).expect("moderate projective warp should decode");
+        assert_eq!(decoded.payload, payload);
+        assert_eq!(decoded.profile, profile);
+        assert_eq!(decoded.landmarks.len(), 4);
+        assert!(decoded.landmarks[0].x < decoded.landmarks[1].x);
+        assert!(decoded.landmarks[0].y < decoded.landmarks[2].y);
+    }
+}
+
+#[test]
 fn light_image_damage_remains_decodable() {
-    let symbol = encode("noise tolerance".as_bytes()).unwrap();
+    let symbol = encode("noise tolerance".as_bytes(), Profile::default()).unwrap();
     let source = render_png(
         &symbol,
         &RenderOptions {
@@ -128,12 +237,12 @@ fn light_image_damage_remains_decodable() {
 fn seeded_rotation_scale_cases_roundtrip() {
     let mut rng = Rng::new(0xdec0_de01);
     for case in 0..200 {
-        let length = usize::from(rng.next_u8()) % 129;
+        let length = usize::from(rng.next_u8()) % (Profile::default().capacity() + 1);
         let mut payload = vec![0u8; length];
         for byte in &mut payload {
             *byte = rng.next_u8();
         }
-        let symbol = encode(&payload).unwrap();
+        let symbol = encode(&payload, Profile::default()).unwrap();
         let source = render_png(
             &symbol,
             &RenderOptions {
@@ -228,6 +337,88 @@ fn jpeg_bytes(image: RgbaImage, quality: u8) -> Vec<u8> {
     output.into_inner()
 }
 
+fn projective_warp(source: &RgbaImage, quad: [[f64; 2]; 4]) -> RgbaImage {
+    let edge = f64::from(TEST_SIZE - 1);
+    let source_corners = [[0., 0.], [edge, 0.], [edge, edge], [0., edge]];
+    let inverse = test_homography(quad, source_corners);
+    let mut output = RgbaImage::from_pixel(TEST_SIZE, TEST_SIZE, Rgba([255, 255, 255, 255]));
+    for y in 0..TEST_SIZE {
+        for x in 0..TEST_SIZE {
+            let Some([sx, sy]) = apply_homography(inverse, [f64::from(x), f64::from(y)]) else {
+                continue;
+            };
+            if sx < 0. || sy < 0. || sx >= edge || sy >= edge {
+                continue;
+            }
+            let (ix, iy) = (sx.floor() as u32, sy.floor() as u32);
+            let (fx, fy) = (sx - f64::from(ix), sy - f64::from(iy));
+            let colors = [
+                source.get_pixel(ix, iy).0,
+                source.get_pixel(ix + 1, iy).0,
+                source.get_pixel(ix, iy + 1).0,
+                source.get_pixel(ix + 1, iy + 1).0,
+            ];
+            let pixel = std::array::from_fn(|channel| {
+                let top =
+                    f64::from(colors[0][channel]) * (1. - fx) + f64::from(colors[1][channel]) * fx;
+                let bottom =
+                    f64::from(colors[2][channel]) * (1. - fx) + f64::from(colors[3][channel]) * fx;
+                (top * (1. - fy) + bottom * fy).round() as u8
+            });
+            output.put_pixel(x, y, Rgba(pixel));
+        }
+    }
+    output
+}
+
+fn test_homography(from: [[f64; 2]; 4], to: [[f64; 2]; 4]) -> [f64; 8] {
+    let mut matrix = [[0.; 9]; 8];
+    for i in 0..4 {
+        let [x, y] = from[i];
+        let [u, v] = to[i];
+        matrix[i * 2] = [x, y, 1., 0., 0., 0., -u * x, -u * y, u];
+        matrix[i * 2 + 1] = [0., 0., 0., x, y, 1., -v * x, -v * y, v];
+    }
+    for column in 0..8 {
+        let pivot = (column..8)
+            .max_by(|a, b| {
+                matrix[*a][column]
+                    .abs()
+                    .total_cmp(&matrix[*b][column].abs())
+            })
+            .unwrap();
+        matrix.swap(column, pivot);
+        let divisor = matrix[column][column];
+        assert!(divisor.abs() > 1e-10, "test quadrilateral is degenerate");
+        for value in &mut matrix[column][column..=8] {
+            *value /= divisor;
+        }
+        for row in 0..8 {
+            if row == column {
+                continue;
+            }
+            let factor = matrix[row][column];
+            let pivot_values = matrix[column][column..=8].to_vec();
+            for (value, pivot_value) in matrix[row][column..=8].iter_mut().zip(&pivot_values) {
+                *value -= factor * pivot_value;
+            }
+        }
+    }
+    std::array::from_fn(|index| matrix[index][8])
+}
+
+fn apply_homography(transform: [f64; 8], [x, y]: [f64; 2]) -> Option<[f64; 2]> {
+    let denominator = transform[6] * x + transform[7] * y + 1.;
+    if !denominator.is_finite() || denominator.abs() < 1e-10 {
+        return None;
+    }
+    let point = [
+        (transform[0] * x + transform[1] * y + transform[2]) / denominator,
+        (transform[3] * x + transform[4] * y + transform[5]) / denominator,
+    ];
+    (point[0].is_finite() && point[1].is_finite()).then_some(point)
+}
+
 fn warp_png(source: &[u8], size: u32, angle_degrees: f64, scale: f64, tx: f64, ty: f64) -> Vec<u8> {
     let source = image::load_from_memory(source).unwrap().to_rgba8();
     let mut output = RgbaImage::from_pixel(size, size, Rgba([255, 255, 255, 255]));
@@ -315,21 +506,23 @@ fn qr_like_png() -> Vec<u8> {
             }
         }
     }
-    for index in 8..13 {
-        modules[6][index] = index % 2 == 0;
-        modules[index][6] = index % 2 == 0;
+    for (index, module) in modules[6][8..13].iter_mut().enumerate() {
+        *module = (index + 8).is_multiple_of(2);
     }
-    for y in 8..MODULES {
-        for x in 8..MODULES {
-            if !modules[y][x] {
-                modules[y][x] = (x * 17 + y * 31) % 7 < 3;
+    for (index, row) in modules[8..13].iter_mut().enumerate() {
+        row[6] = (index + 8).is_multiple_of(2);
+    }
+    for (y, row) in modules.iter_mut().enumerate().skip(8) {
+        for (x, module) in row.iter_mut().enumerate().skip(8) {
+            if !*module {
+                *module = (x * 17 + y * 31) % 7 < 3;
             }
         }
     }
     let mut image = RgbaImage::from_pixel(side, side, Rgba([255, 255, 255, 255]));
-    for y in 0..MODULES {
-        for x in 0..MODULES {
-            if modules[y][x] {
+    for (y, row) in modules.iter().enumerate() {
+        for (x, module) in row.iter().enumerate() {
+            if *module {
                 for py in 0..SCALE {
                     for px in 0..SCALE {
                         image.put_pixel(
@@ -393,12 +586,12 @@ fn _assert_result_shape(result: &DecodeResult) {
 
 #[test]
 fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() {
-    use rcode::{EccLevel, Profile, encode_with_profile, render_svg};
+    use rcode::{EccLevel, Profile, render_svg};
     for spokes in [36, 54, 72] {
         for level in EccLevel::ALL {
             let profile = Profile::new(spokes, level).unwrap();
             let payload: Vec<_> = (0..profile.capacity()).map(|i| (i * 31) as u8).collect();
-            let symbol = encode_with_profile(&payload, profile).unwrap();
+            let symbol = encode(&payload, profile).unwrap();
             for style in [Style::Dots, Style::Lines] {
                 let options = RenderOptions {
                     size: 384,
@@ -417,11 +610,11 @@ fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() 
                     let decoded = decode_image(&image)
                         .unwrap_or_else(|e| panic!("{spokes}/{level}/{style:?}: {e}"));
                     assert_eq!(decoded.payload, payload);
-                    assert_eq!(decoded.profile, Some(profile));
+                    assert_eq!(decoded.profile, profile);
                 }
             }
             let empty = render_png(
-                &encode_with_profile(b"", profile).unwrap(),
+                &encode(b"", profile).unwrap(),
                 &RenderOptions {
                     size: 384,
                     ..RenderOptions::default()
@@ -434,36 +627,14 @@ fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() 
 }
 
 #[test]
-fn original_v2_locator_proportions_remain_decodable() {
-    use rcode::{EccLevel, Profile};
-    let decoded = decode_image(include_bytes!("fixtures/v2-original54m.png")).unwrap();
-    assert_eq!(decoded.payload, b"RadialCode");
-    assert_eq!(
-        decoded.profile,
-        Some(Profile::new(54, EccLevel::M).unwrap())
-    );
-}
-
-#[test]
-fn previous_refined_v2_proportions_remain_decodable() {
-    use rcode::{EccLevel, Profile};
-    let decoded = decode_image(include_bytes!("fixtures/v2-refined54m.png")).unwrap();
-    assert_eq!(decoded.payload, b"RadialCode");
-    assert_eq!(
-        decoded.profile,
-        Some(Profile::new(54, EccLevel::M).unwrap())
-    );
-}
-
-#[test]
 fn every_spoke_has_the_same_visible_inner_boundary() {
-    use rcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
             for style in [Style::Lines, Style::Dots] {
                 let png = render_png(
-                    &encode_with_profile(&payload, profile).unwrap(),
+                    &encode(&payload, profile).unwrap(),
                     &RenderOptions {
                         style,
                         ..RenderOptions::default()
@@ -498,13 +669,13 @@ fn every_spoke_has_the_same_visible_inner_boundary() {
 
 #[test]
 fn dots_keep_visible_radial_gaps() {
-    use rcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
             for size in [384, 768] {
                 let png = render_png(
-                    &encode_with_profile(&payload, profile).unwrap(),
+                    &encode(&payload, profile).unwrap(),
                     &RenderOptions {
                         size,
                         style: Style::Dots,
@@ -544,12 +715,12 @@ fn dots_keep_visible_radial_gaps() {
 
 #[test]
 fn dense_inner_spokes_keep_visible_gaps_at_minimum_size() {
-    use rcode::{EccLevel, Profile, encode_with_profile};
+    use rcode::{EccLevel, Profile};
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
             let png = render_png(
-                &encode_with_profile(&payload, profile).unwrap(),
+                &encode(&payload, profile).unwrap(),
                 &RenderOptions {
                     size: 384,
                     style: Style::Lines,

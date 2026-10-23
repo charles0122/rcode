@@ -1,4 +1,4 @@
-//! v2 line counts and Reed–Solomon correction budgets.
+//! v3 line counts and Reed–Solomon correction budgets.
 use crate::{Error, Result, geometry};
 use std::{fmt, str::FromStr};
 
@@ -81,7 +81,7 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{codec, encode_with_profile};
+    use crate::{codec, encode};
 
     #[test]
     fn capacities_and_exact_error_limits_for_all_twelve_profiles() {
@@ -94,15 +94,15 @@ mod tests {
                 let p = Profile::new(spokes, level).unwrap();
                 assert_eq!(p.capacity(), capacity);
                 let payload = vec![0xa5; capacity];
-                let mut word = codec::encode_profile(&payload, p).unwrap();
+                let mut word = codec::encode(&payload, p).unwrap();
                 assert_eq!(word.len(), p.codeword_len());
                 for (i, byte) in word.iter_mut().take(p.correctable_bytes()).enumerate() {
                     *byte ^= (i + 1) as u8;
                 }
-                let (actual, corrected) = codec::decode_profile(&word, p).unwrap();
+                let (actual, corrected) = codec::decode(&word, p).unwrap();
                 assert_eq!(actual, payload);
                 assert_eq!(corrected, p.correctable_bytes());
-                assert!(encode_with_profile(&vec![0; capacity + 1], p).is_err());
+                assert!(encode(&vec![0; capacity + 1], p).is_err());
                 let wrong = Profile::new(
                     spokes,
                     if level == EccLevel::L {
@@ -112,7 +112,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-                assert!(codec::decode_profile(&word, wrong).is_err());
+                assert!(codec::decode(&word, wrong).is_err());
             }
         }
         assert!(Profile::new(96, EccLevel::M).is_err());

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "id": "replace-with-captured-positive",
+      "image": "samples/replace-with-captured-positive.png",
+      "expected": {
+        "decode": true,
+        "payload_base64": "UkVQTEFDRV9XSVRIX0FDVFVBTF9QQVlMT0FE",
+        "spokes": 72,
+        "ecc": "M"
+      }
+    },
+    {
+      "id": "replace-with-captured-negative",
+      "image": "samples/replace-with-captured-negative.jpg",
+      "expected": {
+        "decode": false
+      }
+    }
+  ]
+}

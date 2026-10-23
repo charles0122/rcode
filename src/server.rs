@@ -3,10 +3,7 @@ use std::io::{Cursor, Read};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use rcode::{
-    EccLevel, MAX_PAYLOAD, Profile, RenderOptions, Style, encode_with_profile, render_png,
-    render_svg,
-};
+use rcode::{EccLevel, Profile, RenderOptions, Style, encode, render_png, render_svg};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
@@ -47,10 +44,10 @@ fn validate_request(request: &Request, port: u16) -> Result<(), HttpResponse> {
     if !host_allowed(request, port) {
         return Err(json_error(400, "invalid host"));
     }
-    if let Some(origin) = header_value(request, "Origin") {
-        if !origin_allowed(origin, port) {
-            return Err(json_error(403, "foreign origin is not allowed"));
-        }
+    if let Some(origin) = header_value(request, "Origin")
+        && !origin_allowed(origin, port)
+    {
+        return Err(json_error(403, "foreign origin is not allowed"));
     }
     if let Some(content_length) = header_value(request, "Content-Length") {
         match content_length.parse::<usize>() {
@@ -102,9 +99,6 @@ fn handle_encode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
     let text = input
         .text
         .ok_or_else(|| json_error(400, "text is required"))?;
-    if text.len() > MAX_PAYLOAD {
-        return Err(json_error(400, "payload exceeds the 128-byte limit"));
-    }
     let size = input.size.unwrap_or(768);
     if !(384..=2048).contains(&size) {
         return Err(json_error(400, "size must be between 384 and 2048"));
@@ -156,8 +150,8 @@ fn handle_encode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
         style,
         logo,
     };
-    let code = encode_with_profile(text.as_bytes(), profile)
-        .map_err(|error| json_error(400, &error.to_string()))?;
+    let code =
+        encode(text.as_bytes(), profile).map_err(|error| json_error(400, &error.to_string()))?;
     let png = render_png(&code, &options).map_err(|error| json_error(400, &error.to_string()))?;
     let svg = render_svg(&code, &options).map_err(|error| json_error(400, &error.to_string()))?;
     json_response(
@@ -177,12 +171,11 @@ fn handle_decode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
         Ok(image::ImageFormat::Png | image::ImageFormat::Jpeg) => {}
         Ok(_) | Err(_) => return Err(status_response(415, "unsupported image format")),
     }
-    if let Ok(reader) = image::ImageReader::new(Cursor::new(&body)).with_guessed_format() {
-        if let Ok((width, height)) = reader.into_dimensions() {
-            if u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
-                return Err(status_response(413, "image exceeds 16 megapixels"));
-            }
-        }
+    if let Ok(reader) = image::ImageReader::new(Cursor::new(&body)).with_guessed_format()
+        && let Ok((width, height)) = reader.into_dimensions()
+        && u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS
+    {
+        return Err(status_response(413, "image exceeds 16 megapixels"));
     }
     let decoded = rcode::decode_image(&body)
         .map_err(|_| status_response(422, "unable to decode radial code"))?;
@@ -207,7 +200,7 @@ fn handle_decode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
             landmarks,
             width: decoded.width,
             height: decoded.height,
-            profile: decoded.profile.map(ProfileInfo::from),
+            profile: ProfileInfo::from(decoded.profile),
         },
     )
 }
@@ -327,7 +320,7 @@ struct EncodeResponse {
 
 #[derive(Debug, Serialize)]
 struct DecodeResponse {
-    profile: Option<ProfileInfo>,
+    profile: ProfileInfo,
     text: Option<String>,
     payload_base64: String,
     byte_length: usize,

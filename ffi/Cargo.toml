@@ -1,0 +1,15 @@
+[package]
+name = "rcode-ffi"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+rcode = { path = ".." }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
