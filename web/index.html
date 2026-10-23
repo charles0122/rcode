@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f7f5" />
+    <meta name="description" content="RadialCode 自定义圆形异形码的编码、解码与耐受性实验台" />
+    <title>RadialCode · 圆形开放码工作台</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner shell">
+        <a class="brand" href="#encode" aria-label="RadialCode 首页">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>
+            <strong>RadialCode</strong>
+            <small>圆形开放码工作台</small>
+          </span>
+        </a>
+        <div class="topbar-note"><span class="status-dot" aria-hidden="true"></span>本机处理 · v2</div>
+      </div>
+    </header>
+
+    <main class="shell app-main">
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">DESIGN · ENCODE · DECODE</p>
+          <h1 id="page-title">把一段文字，做成你的圆形码</h1>
+          <p class="intro-copy">借鉴小程序码的定位思路，RadialCode 使用公开的自定义码制。每一步都在本机完成，适合短文本、链接和标识符。</p>
+        </div>
+        <div class="protocol-note" role="note">
+          <span class="note-icon" aria-hidden="true">◎</span>
+          <span><strong>自定义开放码制</strong><br /><small>与微信小程序码不兼容 · 不上传内容</small></span>
+        </div>
+      </section>
+
+      <nav class="tabs" role="tablist" aria-label="工作台模式">
+        <button class="tab is-active" id="tab-encode" type="button" role="tab" aria-selected="true" aria-controls="panel-encode" data-panel="encode">编码</button>
+        <button class="tab" id="tab-decode" type="button" role="tab" aria-selected="false" aria-controls="panel-decode" data-panel="decode" tabindex="-1">解码</button>
+        <button class="tab" id="tab-lab" type="button" role="tab" aria-selected="false" aria-controls="panel-lab" data-panel="lab" tabindex="-1">耐受实验</button>
+      </nav>
+
+      <section class="tab-panel is-active" id="panel-encode" role="tabpanel" aria-labelledby="tab-encode">
+        <div class="workspace-grid encode-grid">
+          <article class="card settings-card">
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">01 · 输入</p>
+                <h2>编码设置</h2>
+              </div>
+              <span class="live-pill"><span></span>自动预览</span>
+            </div>
+
+            <form id="encode-form" novalidate>
+              <div class="field">
+                <div class="field-label-row">
+                  <label for="encode-text">内容</label>
+                  <output id="text-count" class="byte-count" for="encode-text">0 / 108 字节</output>
+                </div>
+                <textarea id="encode-text" rows="7" placeholder="输入文字、短链接或标识符…" aria-describedby="text-help text-error" spellcheck="false"></textarea>
+                <p id="text-help" class="field-help">按 UTF-8 字节计数，容量随线数与纠错等级变化。</p>
+                <p id="text-error" class="field-error" role="alert"></p>
+              </div>
+
+              <div class="field-row">
+                <div class="field"><label for="code-spokes">版本（放射线数）</label>
+                  <select id="code-spokes" class="text-input"><option value="36">36 线 · 简洁</option><option value="54">54 线 · 均衡</option><option value="72" selected>72 线 · 高容量</option></select></div>
+                <div class="field"><label for="code-ecc">纠错等级</label>
+                  <select id="code-ecc" class="text-input"><option value="L">L · 10%</option><option value="M" selected>M · 15%</option><option value="Q">Q · 25%</option><option value="H">H · 35%</option></select></div>
+              </div>
+              <p id="profile-info" class="field-help">正在读取容量…</p>
+              <div class="field-row style-row">
+                <fieldset class="field style-field">
+                  <legend>图案风格</legend>
+                  <div class="segmented" role="radiogroup" aria-label="图案风格">
+                    <label class="segment"><input type="radio" name="style" value="lines" checked /><span><b class="style-glyph lines-glyph" aria-hidden="true"></b>放射线</span></label>
+                    <label class="segment"><input type="radio" name="style" value="dots" /><span><b class="style-glyph dots-glyph" aria-hidden="true"></b>圆点</span></label>
+                  </div>
+                </fieldset>
+                <div class="field color-field">
+                  <div class="field-label-row"><label for="foreground-hex">前景色</label><span class="color-caption">需较深</span></div>
+                  <div class="color-control">
+                    <input id="foreground-color" type="color" value="#173b32" aria-label="选择前景色" />
+                    <input id="foreground-hex" class="text-input hex-input" type="text" value="#173B32" inputmode="text" maxlength="7" aria-describedby="color-error" />
+                  </div>
+                  <p id="color-error" class="field-error" role="alert"></p>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label-row"><label for="encode-size">输出尺寸</label><output id="size-output" for="encode-size">768 px</output></div>
+                <input id="encode-size" class="range-input" type="range" min="384" max="2048" step="1" value="768" />
+                <div class="range-hints" aria-hidden="true"><span>384</span><span>2048</span></div>
+              </div>
+
+              <div class="field">
+                <div class="field-label-row"><span class="label-text">中心 Logo <span class="optional">可选</span></span><span id="logo-size" class="muted"></span></div>
+                <div id="logo-drop" class="logo-drop">
+                  <div id="logo-empty" class="logo-empty"><span class="upload-icon" aria-hidden="true">＋</span><span>选择 PNG / JPEG</span><small>建议使用方形图片</small></div>
+                  <div id="logo-preview" class="logo-preview" hidden><img id="logo-image" alt="已选择的 Logo 预览" /><span id="logo-name"></span><button id="logo-remove" type="button" class="icon-button" aria-label="移除 Logo">×</button></div>
+                  <input id="logo-input" type="file" accept="image/png,image/jpeg" hidden />
+                </div>
+                <p id="logo-error" class="field-error" role="alert"></p>
+              </div>
+
+              <div class="form-actions">
+                <button id="encode-run" class="button primary" type="submit"><span class="button-spinner" aria-hidden="true"></span><span>立即生成</span></button>
+                <button id="encode-clear" class="button ghost" type="button">清空</button>
+              </div>
+              <p class="privacy-line"><span aria-hidden="true">⌁</span> 内容只发送到当前本机服务，不经第三方。</p>
+            </form>
+          </article>
+
+          <article class="card preview-card">
+            <div class="card-heading preview-heading">
+              <div><p class="section-kicker">02 · 预览</p><h2>你的 RadialCode</h2></div>
+              <div class="preview-switch" role="group" aria-label="预览格式">
+                <button class="mini-tab is-active" type="button" data-preview-kind="png">PNG</button>
+                <button class="mini-tab" type="button" data-preview-kind="svg">SVG</button>
+              </div>
+            </div>
+            <div id="encode-preview-stage" class="code-stage empty-stage" aria-live="polite">
+              <div id="encode-empty" class="empty-state"><div class="empty-orbit" aria-hidden="true"><i></i><i></i><i></i></div><strong>等待一段内容</strong><span>输入后自动生成，或点击「立即生成」</span></div>
+              <img id="encode-png-image" class="code-image" alt="生成的 RadialCode PNG" hidden />
+              <img id="encode-svg-image" class="code-image" alt="生成的 RadialCode SVG" hidden />
+              <div id="encode-loading" class="loading-state" hidden><span class="loader" aria-hidden="true"></span><span>正在生成…</span></div>
+            </div>
+            <div id="encode-status" class="status-message" role="status" aria-live="polite"></div>
+            <div class="preview-footer">
+              <div class="metrics" aria-label="生成信息">
+                <span><b id="output-bytes">—</b><small>内容字节</small></span>
+                <span><b id="output-size">—</b><small>输出尺寸</small></span>
+              </div>
+              <div class="download-actions">
+                <a id="download-png" class="button small ghost is-disabled" download="radialcode.png" aria-disabled="true">下载 PNG</a>
+                <a id="download-svg" class="button small ghost is-disabled" download="radialcode.svg" aria-disabled="true">下载 SVG</a>
+              </div>
+            </div>
+            <div class="verify-row"><span>拿这张图片试试解码</span><button id="verify-current" type="button" class="text-button" disabled>验证当前码 <span aria-hidden="true">→</span></button></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-decode" role="tabpanel" aria-labelledby="tab-decode" hidden>
+        <div class="workspace-grid decode-grid">
+          <article class="card settings-card">
+            <div class="card-heading"><div><p class="section-kicker">01 · 图像</p><h2>选择待解码图片</h2></div></div>
+            <div id="decode-drop" class="decode-drop" tabindex="0" role="button" aria-label="选择或拖入 PNG、JPEG 图片">
+              <span class="drop-icon" aria-hidden="true">↥</span><strong>拖放图片到这里</strong><span>或点击选择 PNG / JPEG</span><small>也可以直接粘贴截图，最大 8 MiB</small>
+              <input id="decode-input" type="file" accept="image/png,image/jpeg" hidden />
+            </div>
+            <div id="decode-file-info" class="file-info" hidden><span class="file-type" aria-hidden="true">IMG</span><span id="decode-file-name"></span><button id="decode-clear" type="button" class="icon-button" aria-label="移除图片">×</button></div>
+            <p id="decode-input-error" class="field-error" role="alert"></p>
+            <div class="divider"></div>
+            <div class="field switch-field"><label class="switch-label" for="landmark-toggle"><span><b>显示定位点</b><small>在预览上标出检测到的圆形标记</small></span><input id="landmark-toggle" type="checkbox" checked /><span class="switch-ui" aria-hidden="true"></span></label></div>
+            <button id="decode-run" class="button primary full-width" type="button" disabled><span class="button-spinner" aria-hidden="true"></span><span>开始解码</span></button>
+            <p class="privacy-line"><span aria-hidden="true">⌁</span> 图像只在当前设备内处理。</p>
+          </article>
+
+          <article class="card preview-card">
+            <div class="card-heading"><div><p class="section-kicker">02 · 结果</p><h2>识别结果</h2></div><span id="decode-state-pill" class="state-pill">等待图片</span></div>
+            <div id="decode-preview-stage" class="decode-stage empty-stage" aria-live="polite">
+              <div id="decode-empty" class="empty-state"><div class="empty-upload" aria-hidden="true">↗</div><strong>还没有图片</strong><span>选择图片后将在这里显示</span></div>
+              <img id="decode-image" class="source-image" alt="待解码图片" hidden />
+              <svg id="landmark-overlay" class="landmark-overlay" aria-hidden="true" hidden></svg>
+              <div id="decode-loading" class="loading-state" hidden><span class="loader" aria-hidden="true"></span><span>正在识别…</span></div>
+            </div>
+            <div id="decode-status" class="status-message" role="status" aria-live="polite"></div>
+            <div id="decode-result" class="decode-result" hidden>
+              <div class="result-label-row"><span id="decode-content-kind" class="result-kind">UTF-8 文本</span><button id="decode-copy" type="button" class="text-button">复制内容</button></div>
+              <p id="decode-profile" class="field-help"></p><pre id="decode-content" class="result-content" tabindex="0"></pre>
+              <div class="result-metrics"><span><b id="decode-bytes">—</b><small>内容字节</small></span><span><b id="decode-corrected">—</b><small>纠正字节</small></span><span><b id="decode-dimensions">—</b><small>图片尺寸</small></span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-lab" role="tabpanel" aria-labelledby="tab-lab" hidden>
+        <div class="lab-layout">
+          <article class="card lab-controls">
+            <div class="card-heading"><div><p class="section-kicker">01 · 实验参数</p><h2>轻微损伤实验</h2></div><span class="lab-badge">真实图像</span></div>
+            <p class="lab-intro">对当前图片施加旋转、缩放和灰度噪声，再交给同一个解码器。实验结果来自真实像素，不写入额外标记。</p>
+            <div class="source-picker" role="group" aria-label="实验图片来源"><span class="field-label">图片来源</span><div class="source-buttons"><button id="lab-use-encode" class="source-button is-active" type="button" disabled>当前编码图</button><button id="lab-use-decode" class="source-button" type="button" disabled>解码图片</button></div><small id="lab-source-name">先在编码页生成图片</small></div>
+            <div class="lab-sliders">
+              <div class="field"><div class="field-label-row"><label for="lab-rotation">旋转</label><output id="rotation-output" for="lab-rotation">0°</output></div><input id="lab-rotation" type="range" min="0" max="359" step="1" value="0" class="range-input" /><div class="range-hints" aria-hidden="true"><span>0°</span><span>359°</span></div></div>
+              <div class="field"><div class="field-label-row"><label for="lab-scale">缩放</label><output id="scale-output" for="lab-scale">100%</output></div><input id="lab-scale" type="range" min="0.5" max="2" step="0.01" value="1" class="range-input" /><div class="range-hints" aria-hidden="true"><span>50%</span><span>200%</span></div></div>
+              <div class="field"><div class="field-label-row"><label for="lab-noise">灰度噪声</label><output id="noise-output" for="lab-noise">0 / 8</output></div><input id="lab-noise" type="range" min="0" max="8" step="0.1" value="0" class="range-input" /><div class="range-hints" aria-hidden="true"><span>无</span><span>8</span></div></div>
+            </div>
+            <button id="lab-run" class="button primary full-width" type="button" disabled><span class="button-spinner" aria-hidden="true"></span><span>应用实验并解码</span></button>
+            <p id="lab-status" class="status-message" role="status" aria-live="polite"></p>
+          </article>
+
+          <article class="card lab-result-card">
+            <div class="card-heading"><div><p class="section-kicker">02 · 观测</p><h2>变换后的图像</h2></div><span id="lab-result-pill" class="state-pill">尚未运行</span></div>
+            <div class="lab-image-stage empty-stage"><div id="lab-empty" class="empty-state"><div class="empty-orbit muted-orbit" aria-hidden="true"><i></i><i></i></div><strong>准备一张图片开始</strong><span>建议先在编码页生成一张码</span></div><canvas id="lab-canvas" hidden></canvas><img id="lab-image" class="lab-image" alt="实验变换后的 RadialCode" hidden /><div id="lab-loading" class="loading-state" hidden><span class="loader" aria-hidden="true"></span><span>正在变换并识别…</span></div></div>
+            <div id="lab-result" class="decode-result lab-decode-result" hidden><div class="result-label-row"><span id="lab-content-kind" class="result-kind">解码结果</span><button id="lab-copy" type="button" class="text-button">复制内容</button></div><pre id="lab-content" class="result-content" tabindex="0"></pre><div class="result-metrics"><span><b id="lab-bytes">—</b><small>内容字节</small></span><span><b id="lab-corrected">—</b><small>纠正字节</small></span><span><b id="lab-dimensions">—</b><small>图片尺寸</small></span></div></div>
+          </article>
+        </div>
+      </section>
+
+      <footer class="footer-note">RadialCode v2 · 36 / 54 / 72 线 · 四档纠错 · 输入图片限制 8 MiB / 1600 万像素 · 本工具不代表微信官方</footer>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
