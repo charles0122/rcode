@@ -11,9 +11,14 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.camera.view.PreviewView
 import com.rcode.scanner.RCodeScanner
 import com.rcode.scanner.RCodeDecoder
+import com.rcode.scanner.RCodeEncoder
 import com.rcode.scanner.ScanException
 import com.rcode.scanner.ScanError
 import com.rcode.scanner.ScanResult
+import com.rcode.scanner.EccLevel
+import com.rcode.scanner.Profile
+import com.rcode.scanner.RCodeStyle
+import com.rcode.scanner.RenderPlan
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -46,6 +51,18 @@ class RcodeFlutterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activ
         val args = call.arguments as? Map<*, *>
         val view = (args?.get("viewId") as? Int)?.let(views::get)
         when (call.method) {
+            "encodePlan" -> {
+                val payload = args?.get("payload") as? ByteArray
+                val spokes = args?.get("spokes") as? Int
+                val ecc = (args?.get("errorCorrection") as? Int)?.let { EccLevel.entries.getOrNull(it) }
+                val style = (args?.get("style") as? Int)?.let { RCodeStyle.entries.getOrNull(it) }
+                if (payload == null || spokes == null || ecc == null || style == null) {
+                    result.error("invalidArgument", "Invalid encoding options", null); return
+                }
+                try { result.success(planMap(RCodeEncoder().encode(payload, Profile(spokes, ecc), style))) }
+                catch (error: ScanException) { result.error(errorCode(error.error), error.message, null) }
+                catch (error: Exception) { result.error("internal", error.message, null) }
+            }
             "decodeImage" -> {
                 val bytes = call.arguments as? ByteArray
                 if (bytes == null) { result.error("invalidImage", "Expected encoded image bytes", null); return }
@@ -152,6 +169,19 @@ class RcodeFlutterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activ
                 "correctedBytes" to result.correctedBytes, "landmarks" to result.landmarks.map { listOf(it.x.toDouble(), it.y.toDouble()) },
                 "imageWidth" to result.imageWidth, "imageHeight" to result.imageHeight,
                 "spokes" to result.profile.spokes, "errorCorrection" to result.profile.ecc.id)
+
+    private fun planMap(plan: RenderPlan): Map<String, Any> = mapOf(
+        "version" to plan.version,
+        "viewport" to plan.viewport,
+        "logoRegion" to listOf(plan.logoX, plan.logoY, plan.logoRadius),
+        "commands" to plan.commands.map { command ->
+            mapOf(
+                "kind" to command.kind.ordinal,
+                "paint" to command.paint.ordinal,
+                "values" to command.values,
+            )
+        },
+    )
 
     private fun errorCode(error: ScanError): String = when (error) {
         ScanError.PERMISSION_REQUIRED -> "permissionRequired"

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +11,120 @@ class RCodeExample extends StatelessWidget {
   const RCodeExample({super.key});
 
   @override
-  Widget build(BuildContext context) => const MaterialApp(home: ScannerPage());
+  Widget build(BuildContext context) => MaterialApp(
+    theme: ThemeData(colorSchemeSeed: const Color(0xFF173B32)),
+    home: DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('RCode'),
+          bottom: TabBar(
+            tabs: <Widget>[
+              Tab(text: '生成'),
+              Tab(text: '扫描'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: <Widget>[GeneratorPage(), ScannerPage()],
+        ),
+      ),
+    ),
+  );
+}
+
+class GeneratorPage extends StatefulWidget {
+  const GeneratorPage({super.key});
+
+  @override
+  State<GeneratorPage> createState() => _GeneratorPageState();
+}
+
+class _GeneratorPageState extends State<GeneratorPage> {
+  final _encoder = RCodeEncoder();
+  final _textController = TextEditingController(text: 'Hello RCode');
+  RCodeStyle _style = RCodeStyle.rings;
+  RenderPlan? _plan;
+  String? _error;
+  bool _encoding = false;
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _generate() async {
+    setState(() {
+      _encoding = true;
+      _error = null;
+    });
+    try {
+      final plan = await _encoder.encode(
+        Uint8List.fromList(utf8.encode(_textController.text)),
+        style: _style,
+      );
+      if (mounted) setState(() => _plan = plan);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _encoding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: <Widget>[
+      TextField(
+        controller: _textController,
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+          labelText: '编码内容',
+        ),
+        minLines: 2,
+        maxLines: 4,
+      ),
+      const SizedBox(height: 12),
+      SegmentedButton<RCodeStyle>(
+        segments: const <ButtonSegment<RCodeStyle>>[
+          ButtonSegment(value: RCodeStyle.lines, label: Text('放射线')),
+          ButtonSegment(value: RCodeStyle.dots, label: Text('圆点')),
+          ButtonSegment(value: RCodeStyle.rings, label: Text('断点圆环')),
+        ],
+        selected: <RCodeStyle>{_style},
+        onSelectionChanged: (styles) => setState(() => _style = styles.single),
+      ),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: _encoding ? null : _generate,
+        child: Text(_encoding ? '生成中…' : '生成'),
+      ),
+      if (_error != null) ...<Widget>[
+        const SizedBox(height: 12),
+        Text(
+          _error!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      ],
+      if (_plan != null) ...<Widget>[
+        const SizedBox(height: 20),
+        AspectRatio(
+          aspectRatio: 1,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            child: RCodeView(plan: _plan!),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text('可用另一台设备打开“扫描”页识别此码。', textAlign: TextAlign.center),
+      ],
+    ],
+  );
 }
 
 class ScannerPage extends StatefulWidget {
@@ -50,6 +164,7 @@ class _ScannerPageState extends State<ScannerPage> {
     if (!mounted) return;
     if (permission == CameraPermissionState.granted) {
       await _scanner.start();
+      setState(() => _message = 'Point the camera at an RCode.');
     } else {
       setState(() => _message = 'Camera permission was denied.');
     }
@@ -70,7 +185,6 @@ class _ScannerPageState extends State<ScannerPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('RCode scanner')),
     body: Column(
       children: <Widget>[
         Expanded(

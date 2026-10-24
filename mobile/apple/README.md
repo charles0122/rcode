@@ -20,6 +20,16 @@ run `scripts/build-mobile-core.sh` from the repository root.
 Add `NSCameraUsageDescription` to the host app's Info.plist before requesting
 camera access.
 
+## Encoding and drawing
+
+`RCodeEncoder` returns Rust-authored drawing commands; `RCodeRenderer` translates them to
+CoreGraphics without reimplementing slot or style geometry:
+
+```swift
+let plan = try RCodeEncoder().encode(Data("hello".utf8), style: .rings)
+let image = RCodeRenderer.image(plan: plan, size: 768)
+```
+
 ## Camera scanning
 
 ```swift
@@ -55,5 +65,6 @@ same Rust decoder used by live capture.
 
 The automated tests cover the public result models, one-result gate, lifecycle
 intent, preview-layer coordinate conversion, invalid luma input, and decoding a
-current v3 encoded-image fixture. They do not verify live camera capture or
+current v3 encoded-image fixture. They also render a ring RenderPlan through
+CoreGraphics and decode the resulting pixels. They do not verify live camera capture or
 physical-device scanning.

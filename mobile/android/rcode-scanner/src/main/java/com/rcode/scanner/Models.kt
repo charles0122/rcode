@@ -4,6 +4,27 @@ data class Landmark(val x: Float, val y: Float)
 
 enum class EccLevel(val id: Int) { L(0), M(1), Q(2), H(3) }
 
+enum class RCodeStyle(val id: Int) { LINES(0), DOTS(1), RINGS(2) }
+
+enum class DrawKind { CIRCLE, LINE, ARC }
+
+enum class DrawPaint { BACKGROUND, FOREGROUND }
+
+data class DrawCommand(
+    val kind: DrawKind,
+    val paint: DrawPaint,
+    val values: List<Double>,
+)
+
+data class RenderPlan(
+    val version: Int,
+    val viewport: Double,
+    val logoX: Double,
+    val logoY: Double,
+    val logoRadius: Double,
+    val commands: List<DrawCommand>,
+)
+
 data class Profile(val spokes: Int, val ecc: EccLevel)
 
 data class ScanResult(
@@ -51,6 +72,25 @@ internal fun mapNativeResponse(response: NativeResponse): ScanResult? {
         imageWidth = response.width,
         imageHeight = response.height,
         profile = Profile(response.spokes, ecc),
+    )
+}
+
+internal fun mapNativePlan(response: NativePlanResponse): RenderPlan? {
+    if (response.status != 0 || response.version != 1 || response.kinds.size != response.paints.size ||
+        response.values.size != response.kinds.size * 6 || response.viewport <= 0.0
+    ) return null
+    val commands = response.kinds.indices.map { index ->
+        val kind = DrawKind.entries.getOrNull(response.kinds[index]) ?: return null
+        val paint = DrawPaint.entries.getOrNull(response.paints[index]) ?: return null
+        DrawCommand(kind, paint, response.values.slice(index * 6 until index * 6 + 6))
+    }
+    return RenderPlan(
+        response.version,
+        response.viewport,
+        response.logoX,
+        response.logoY,
+        response.logoRadius,
+        commands,
     )
 }
 

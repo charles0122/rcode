@@ -1,4 +1,7 @@
-use rcode::{DecodeResult, Error, decode_luma8};
+use rcode::{
+    DecodeResult, DrawOperation, EccLevel, Error, Paint, Profile, Style, build_render_plan,
+    decode_luma8, encode,
+};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const OK: u32 = 0;
@@ -13,9 +16,28 @@ pub struct RCodeResult {
     decoded: DecodeResult,
 }
 
+/// Owns a platform-neutral drawing plan and its stable C operations.
+pub struct RCodePlan {
+    version: u32,
+    viewport: f64,
+    logo_region: (f64, f64, f64),
+    operations: Vec<RCodeDrawOperation>,
+}
+
+/// kind: circle=0, line=1, arc=2. paint: background=0, foreground=1.
+/// Circle values: cx, cy, radius. Line: x1, y1, x2, y2, width.
+/// Arc: cx, cy, radius, start radians, sweep radians, width.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RCodeDrawOperation {
+    pub kind: u32,
+    pub paint: u32,
+    pub values: [f64; 6],
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn rcode_abi_version() -> u32 {
-    1
+    2
 }
 
 #[unsafe(no_mangle)]
@@ -69,6 +91,128 @@ pub unsafe extern "C" fn rcode_decode_luma8(
         }
     }))
     .unwrap_or(INTERNAL_PANIC)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// `payload` must point to `payload_len` readable bytes unless the length is zero.
+/// `out_plan` must point to writable storage.
+pub unsafe extern "C" fn rcode_encode_plan(
+    payload: *const u8,
+    payload_len: usize,
+    spokes: u32,
+    ecc_id: u32,
+    style_id: u32,
+    out_plan: *mut *mut RCodePlan,
+) -> u32 {
+    if out_plan.is_null() {
+        return INVALID_ARGUMENT;
+    }
+    unsafe { *out_plan = std::ptr::null_mut() };
+    if (payload.is_null() && payload_len != 0) || payload_len > isize::MAX as usize {
+        return INVALID_ARGUMENT;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let payload = if payload_len == 0 {
+            &[]
+        } else {
+            // SAFETY: the pointer contract and maximum slice length were checked above.
+            unsafe { std::slice::from_raw_parts(payload, payload_len) }
+        };
+        let Some(level) = ecc_level(ecc_id) else {
+            return INVALID_ARGUMENT;
+        };
+        let Some(style) = style(style_id) else {
+            return INVALID_ARGUMENT;
+        };
+        let profile = match Profile::new(spokes as usize, level) {
+            Ok(profile) => profile,
+            Err(_) => return INVALID_ARGUMENT,
+        };
+        let plan =
+            match encode(payload, profile).and_then(|symbol| build_render_plan(&symbol, style)) {
+                Ok(plan) => plan,
+                Err(error) => return status_for_error(&error),
+            };
+        let operations = plan.operations.into_iter().map(ffi_operation).collect();
+        let result = RCodePlan {
+            version: plan.version,
+            viewport: plan.viewport,
+            logo_region: plan.logo_region,
+            operations,
+        };
+        unsafe { *out_plan = Box::into_raw(Box::new(result)) };
+        OK
+    }))
+    .unwrap_or(INTERNAL_PANIC)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// `plan` must be live and `out_version` must be writable.
+pub unsafe extern "C" fn rcode_plan_version(plan: *const RCodePlan, out_version: *mut u32) -> u32 {
+    if plan.is_null() || out_version.is_null() {
+        return INVALID_ARGUMENT;
+    }
+    unsafe { *out_version = (*plan).version };
+    OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// `plan` must be live and all output pointers must be writable.
+pub unsafe extern "C" fn rcode_plan_metadata(
+    plan: *const RCodePlan,
+    out_viewport: *mut f64,
+    out_logo_x: *mut f64,
+    out_logo_y: *mut f64,
+    out_logo_radius: *mut f64,
+) -> u32 {
+    if plan.is_null()
+        || out_viewport.is_null()
+        || out_logo_x.is_null()
+        || out_logo_y.is_null()
+        || out_logo_radius.is_null()
+    {
+        return INVALID_ARGUMENT;
+    }
+    let plan = unsafe { &*plan };
+    unsafe {
+        *out_viewport = plan.viewport;
+        *out_logo_x = plan.logo_region.0;
+        *out_logo_y = plan.logo_region.1;
+        *out_logo_radius = plan.logo_region.2;
+    }
+    OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// `plan` must be live and both output pointers must be writable. The returned
+/// operations are borrowed until `rcode_plan_free(plan)`.
+pub unsafe extern "C" fn rcode_plan_operations(
+    plan: *const RCodePlan,
+    out_operations: *mut *const RCodeDrawOperation,
+    out_count: *mut usize,
+) -> u32 {
+    if plan.is_null() || out_operations.is_null() || out_count.is_null() {
+        return INVALID_ARGUMENT;
+    }
+    let plan = unsafe { &*plan };
+    unsafe {
+        *out_operations = plan.operations.as_ptr();
+        *out_count = plan.operations.len();
+    }
+    OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+/// `plan` must be null or a live handle returned by `rcode_encode_plan`.
+pub unsafe extern "C" fn rcode_plan_free(plan: *mut RCodePlan) {
+    if !plan.is_null() {
+        drop(unsafe { Box::from_raw(plan) });
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -197,6 +341,59 @@ fn status_for_error(error: &Error) -> u32 {
     }
 }
 
+fn ecc_level(id: u32) -> Option<EccLevel> {
+    [EccLevel::L, EccLevel::M, EccLevel::Q, EccLevel::H]
+        .get(id as usize)
+        .copied()
+}
+
+fn style(id: u32) -> Option<Style> {
+    [Style::Lines, Style::Dots, Style::Rings]
+        .get(id as usize)
+        .copied()
+}
+
+fn ffi_operation(operation: DrawOperation) -> RCodeDrawOperation {
+    let paint = |paint| u32::from(paint == Paint::Foreground);
+    match operation {
+        DrawOperation::Circle {
+            cx,
+            cy,
+            radius,
+            paint: role,
+        } => RCodeDrawOperation {
+            kind: 0,
+            paint: paint(role),
+            values: [cx, cy, radius, 0.0, 0.0, 0.0],
+        },
+        DrawOperation::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            width,
+            paint: role,
+        } => RCodeDrawOperation {
+            kind: 1,
+            paint: paint(role),
+            values: [x1, y1, x2, y2, width, 0.0],
+        },
+        DrawOperation::Arc {
+            cx,
+            cy,
+            radius,
+            start_angle,
+            sweep_angle,
+            width,
+            paint: role,
+        } => RCodeDrawOperation {
+            kind: 2,
+            paint: paint(role),
+            values: [cx, cy, radius, start_angle, sweep_angle, width],
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +508,61 @@ mod tests {
             unsafe { rcode_decode_luma8(&byte, isize::MAX as usize + 1, 2, 2, 2, &mut result) },
             INVALID_ARGUMENT
         );
+    }
+
+    #[test]
+    fn exported_plan_is_bulk_readable_and_owns_its_memory() {
+        let payload = b"native render plan";
+        let mut plan = std::ptr::null_mut();
+        // SAFETY: payload and output storage are valid for this call.
+        assert_eq!(
+            unsafe { rcode_encode_plan(payload.as_ptr(), payload.len(), 72, 1, 2, &mut plan) },
+            OK
+        );
+        assert!(!plan.is_null());
+        let mut version = 0;
+        let (mut viewport, mut logo_x, mut logo_y, mut logo_radius) = (0.0, 0.0, 0.0, 0.0);
+        let (mut operations, mut count) = (std::ptr::null(), 0);
+        // SAFETY: plan is live and all output storage is local and writable.
+        unsafe {
+            assert_eq!(rcode_plan_version(plan, &mut version), OK);
+            assert_eq!(version, 1);
+            assert_eq!(
+                rcode_plan_metadata(
+                    plan,
+                    &mut viewport,
+                    &mut logo_x,
+                    &mut logo_y,
+                    &mut logo_radius,
+                ),
+                OK
+            );
+            assert_eq!(
+                (viewport, logo_x, logo_y, logo_radius),
+                (128.0, 64.0, 64.0, 20.0)
+            );
+            assert_eq!(rcode_plan_operations(plan, &mut operations, &mut count), OK);
+            let operations = std::slice::from_raw_parts(operations, count);
+            assert!(operations.iter().any(|operation| operation.kind == 2));
+            assert!(operations.iter().any(|operation| operation.paint == 0));
+            assert!(operations.iter().any(|operation| operation.paint == 1));
+            rcode_plan_free(plan);
+        }
+    }
+
+    #[test]
+    fn exported_plan_rejects_unknown_profile_and_style_ids() {
+        let mut plan = std::ptr::dangling_mut::<RCodePlan>();
+        // SAFETY: output storage is valid; empty payload permits a null input pointer.
+        assert_eq!(
+            unsafe { rcode_encode_plan(std::ptr::null(), 0, 99, 0, 0, &mut plan) },
+            INVALID_ARGUMENT
+        );
+        assert!(plan.is_null());
+        assert_eq!(
+            unsafe { rcode_encode_plan(std::ptr::null(), 0, 72, 0, 99, &mut plan) },
+            INVALID_ARGUMENT
+        );
+        assert!(plan.is_null());
     }
 }

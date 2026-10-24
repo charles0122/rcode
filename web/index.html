@@ -76,6 +76,7 @@
                   <div class="segmented" role="radiogroup" aria-label="图案风格">
                     <label class="segment"><input type="radio" name="style" value="lines" checked /><span><b class="style-glyph lines-glyph" aria-hidden="true"></b>放射线</span></label>
                     <label class="segment"><input type="radio" name="style" value="dots" /><span><b class="style-glyph dots-glyph" aria-hidden="true"></b>圆点</span></label>
+                    <label class="segment"><input type="radio" name="style" value="rings" /><span><b class="style-glyph rings-glyph" aria-hidden="true"></b>断点圆环</span></label>
                   </div>
                 </fieldset>
                 <div class="field color-field">
@@ -122,7 +123,7 @@
             </div>
             <div id="encode-preview-stage" class="code-stage empty-stage" aria-live="polite">
               <div id="encode-empty" class="empty-state"><div class="empty-orbit" aria-hidden="true"><i></i><i></i><i></i></div><strong>等待一段内容</strong><span>输入后自动生成，或点击「立即生成」</span></div>
-              <img id="encode-png-image" class="code-image" alt="生成的 RCode PNG" hidden />
+              <canvas id="encode-png-image" class="code-image" role="img" aria-label="生成的 RCode PNG" hidden></canvas>
               <img id="encode-svg-image" class="code-image" alt="生成的 RCode SVG" hidden />
               <div id="encode-loading" class="loading-state" hidden><span class="loader" aria-hidden="true"></span><span>正在生成…</span></div>
             </div>

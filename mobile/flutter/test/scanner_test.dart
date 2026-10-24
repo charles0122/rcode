@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rcode_flutter/rcode_flutter.dart';
 
@@ -28,6 +29,25 @@ void main() {
           'imageHeight': 20,
           'spokes': 54,
           'errorCorrection': 2,
+        };
+      }
+      if (call.method == 'encodePlan') {
+        return <String, Object>{
+          'version': 1,
+          'viewport': 128.0,
+          'logoRegion': <double>[64, 64, 20],
+          'commands': <Map<String, Object>>[
+            <String, Object>{
+              'kind': 0,
+              'paint': 0,
+              'values': <double>[64, 64, 22, 0, 0, 0],
+            },
+            <String, Object>{
+              'kind': 2,
+              'paint': 1,
+              'values': <double>[64, 64, 40, 0, 1, 0.8],
+            },
+          ],
         };
       }
       if (call.method == 'permissionState' ||
@@ -102,5 +122,20 @@ void main() {
     expect(results.single.payload, Uint8List.fromList(<int>[65, 66]));
     await subscription.cancel();
     await controller.dispose();
+  });
+
+  testWidgets('encodes and paints a platform-neutral render plan', (tester) async {
+    final plan = await RCodeEncoder().encode(
+      Uint8List.fromList(<int>[65]),
+      style: RCodeStyle.rings,
+    );
+    expect(plan.version, 1);
+    expect(plan.viewport, 128);
+    expect(plan.commands.last.kind, DrawKind.arc);
+    await tester.pumpWidget(
+      Center(child: SizedBox.square(dimension: 256, child: RCodeView(plan: plan))),
+    );
+    expect(find.byType(CustomPaint), findsOneWidget);
+    expect(calls, <String>['encodePlan']);
   });
 }

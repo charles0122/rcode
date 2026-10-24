@@ -7,18 +7,10 @@ use base64::Engine as _;
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
-use crate::geometry::{self, HALF_CANVAS, Slot};
+use crate::plan::{DrawOperation, Paint, build_render_plan};
 use crate::{Error, Result, Symbol};
 
-/// Data rendering style.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Style {
-    /// Draw each set sample as a round dot.
-    Dots,
-    /// Draw dots and round-ended capsules between adjacent set samples.
-    #[default]
-    Lines,
-}
+pub use crate::plan::Style;
 
 /// Options shared by PNG and SVG output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,7 +64,6 @@ impl RenderOptions {
 /// Render one symbol as a PNG.
 pub fn render_png(symbol: &Symbol, options: &RenderOptions) -> Result<Vec<u8>> {
     options.validate()?;
-    validate_symbol(symbol)?;
 
     let high_size = options
         .size
@@ -93,15 +84,12 @@ pub fn render_png(symbol: &Symbol, options: &RenderOptions) -> Result<Vec<u8>> {
 /// Render one symbol as a self-contained SVG.
 pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
     options.validate()?;
-    validate_symbol(symbol)?;
+    let plan = build_render_plan(symbol, options.style)?;
 
     let fg = format!(
         "#{:02x}{:02x}{:02x}",
         options.foreground[0], options.foreground[1], options.foreground[2]
     );
-    let slots = geometry::slots_for_spokes(symbol.profile.spokes());
-    let bits = slot_bits(symbol, &slots)?;
-    let radius = stroke_radius(symbol, options.style);
     let mut svg = String::with_capacity(48_000);
     writeln!(
         svg,
@@ -110,48 +98,10 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
     )
     .unwrap();
     svg.push_str(r##"<rect width="128" height="128" fill="#fff"/>"##);
-    // The clear disc keeps a future renderer from placing content below a logo.
-    svg.push_str(r##"<circle cx="64" cy="64" r="22" fill="#fff"/>"##);
-
-    for [start, end] in inner_leads(options.style, &slots, &bits, radius) {
-        let (x1, y1) = svg_point(start.0, start.1);
-        let (x2, y2) = svg_point(end.0, end.1);
-        let width = radius * 2.0;
-        writeln!(svg, r#"<line x1="{x1:.4}" y1="{y1:.4}" x2="{x2:.4}" y2="{y2:.4}" stroke="{fg}" stroke-width="{width}" stroke-linecap="round"/>"#).unwrap();
+    for operation in &plan.operations {
+        append_svg_operation(&mut svg, *operation, &fg);
     }
 
-    for (index, slot) in slots.iter().enumerate() {
-        if bits[index] {
-            let (x, y) = svg_point(slot.x, slot.y);
-            writeln!(
-                svg,
-                r#"<circle cx="{x:.4}" cy="{y:.4}" r="{radius}" fill="{fg}"/>"#
-            )
-            .unwrap();
-        }
-    }
-    if options.style == Style::Lines {
-        for index in 1..slots.len() {
-            let previous = slots[index - 1];
-            let current = slots[index];
-            if previous.spoke == current.spoke
-                && previous.ring + 1 == current.ring
-                && bits[index - 1]
-                && bits[index]
-            {
-                let (x1, y1) = svg_point(previous.x, previous.y);
-                let (x2, y2) = svg_point(current.x, current.y);
-                let width = radius * 2.0;
-                writeln!(
-                    svg,
-                    r#"<line x1="{x1:.4}" y1="{y1:.4}" x2="{x2:.4}" y2="{y2:.4}" stroke="{fg}" stroke-width="{width}" stroke-linecap="round"/>"#
-                )
-                .unwrap();
-            }
-        }
-    }
-
-    append_svg_locators(&mut svg, &fg, geometry::LOCATOR_RADII);
     if let Some(bytes) = &options.logo {
         let logo = load_logo(bytes)?;
         let png = encode_logo_png(&logo)?;
@@ -167,17 +117,6 @@ pub fn render_svg(symbol: &Symbol, options: &RenderOptions) -> Result<String> {
     }
     svg.push_str("</svg>");
     Ok(svg)
-}
-
-fn validate_symbol(symbol: &Symbol) -> Result<()> {
-    let expected = symbol.profile.codeword_len();
-    if symbol.codeword.len() != expected {
-        return Err(Error::InvalidOptions(format!(
-            "symbol codeword has {} bytes; expected {expected}",
-            symbol.codeword.len()
-        )));
-    }
-    Ok(())
 }
 
 fn contrast_against_white(color: [u8; 3]) -> f64 {
@@ -207,32 +146,6 @@ fn foreground(options: &RenderOptions) -> Rgba<u8> {
     ])
 }
 
-fn point(x: f64, y: f64, scale: f64) -> (f64, f64) {
-    ((x + HALF_CANVAS) * scale, (y + HALF_CANVAS) * scale)
-}
-
-fn svg_point(x: f64, y: f64) -> (f64, f64) {
-    (x + HALF_CANVAS, y + HALF_CANVAS)
-}
-
-fn slot_bits(symbol: &Symbol, slots: &[Slot]) -> Result<Vec<bool>> {
-    if slots.len() < symbol.codeword.len() * 8 {
-        return Err(Error::InvalidOptions("invalid geometry slot count".into()));
-    }
-    Ok(slots
-        .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            let raw = if index < symbol.codeword.len() * 8 {
-                (symbol.codeword[index / 8] >> (7 - index % 8)) & 1 != 0
-            } else {
-                false
-            };
-            raw ^ geometry::mask(index)
-        })
-        .collect())
-}
-
 fn draw_symbol(
     image: &mut RgbaImage,
     symbol: &Symbol,
@@ -240,116 +153,108 @@ fn draw_symbol(
     scale: f64,
 ) -> Result<()> {
     let fg = foreground(options);
-    let slots = geometry::slots_for_spokes(symbol.profile.spokes());
-    let bits = slot_bits(symbol, &slots)?;
-    let radius = stroke_radius(symbol, options.style);
-
-    draw_circle(image, point(0.0, 0.0, scale), 22.0 * scale, white());
-    for [start, end] in inner_leads(options.style, &slots, &bits, radius) {
-        draw_capsule(
-            image,
-            point(start.0, start.1, scale),
-            point(end.0, end.1, scale),
-            radius * scale,
-            fg,
-        );
-    }
-    for (index, slot) in slots.iter().enumerate() {
-        if bits[index] {
-            draw_circle(image, point(slot.x, slot.y, scale), radius * scale, fg);
-        }
-    }
-    if options.style == Style::Lines {
-        for index in 1..slots.len() {
-            let previous = slots[index - 1];
-            let current = slots[index];
-            if previous.spoke == current.spoke
-                && previous.ring + 1 == current.ring
-                && bits[index - 1]
-                && bits[index]
-            {
+    let plan = build_render_plan(symbol, options.style)?;
+    for operation in plan.operations {
+        let color = match operation_paint(operation) {
+            Paint::Background => white(),
+            Paint::Foreground => fg,
+        };
+        match operation {
+            DrawOperation::Circle { cx, cy, radius, .. } => {
+                draw_circle(image, (cx * scale, cy * scale), radius * scale, color);
+            }
+            DrawOperation::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                width,
+                ..
+            } => {
                 draw_capsule(
                     image,
-                    point(previous.x, previous.y, scale),
-                    point(current.x, current.y, scale),
-                    radius * scale,
-                    fg,
+                    (x1 * scale, y1 * scale),
+                    (x2 * scale, y2 * scale),
+                    width * scale / 2.0,
+                    color,
                 );
             }
+            DrawOperation::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                sweep_angle,
+                width,
+                ..
+            } => draw_arc(
+                image,
+                (cx, cy),
+                (radius, start_angle, sweep_angle, width / 2.0),
+                scale,
+                color,
+            ),
         }
     }
-
-    draw_locators(image, scale, fg, geometry::LOCATOR_RADII);
     if let Some(bytes) = &options.logo {
         draw_logo(image, bytes, scale)?;
     }
     Ok(())
 }
 
-// A fixed non-data contour gives every spoke the same visible inner edge.
-// It ends before the first data sample at radius 25 unless that sample is black.
-fn inner_leads(style: Style, slots: &[Slot], bits: &[bool], radius: f64) -> Vec<[(f64, f64); 2]> {
-    slots
-        .iter()
-        .zip(bits)
-        .filter(|(slot, _)| slot.ring == 0)
-        .map(|(slot, on)| {
-            let start = 22.0 + radius;
-            let end = if style == Style::Lines {
-                if *on { 25.0 } else { 23.2 }
-            } else {
-                start
-            };
-            [
-                (slot.x * start / 25.0, slot.y * start / 25.0),
-                (slot.x * end / 25.0, slot.y * end / 25.0),
-            ]
-        })
-        .collect()
-}
-
-fn stroke_radius(symbol: &Symbol, style: Style) -> f64 {
-    let profile = symbol.profile;
-    // Samples are 1.5 units apart; leave 0.4 units between round dots.
-    if style == Style::Dots {
-        return 0.55;
-    }
-    match profile.spokes() {
-        36 => 1.0,
-        54 => 0.9,
-        _ => 0.7,
+fn operation_paint(operation: DrawOperation) -> Paint {
+    match operation {
+        DrawOperation::Circle { paint, .. }
+        | DrawOperation::Line { paint, .. }
+        | DrawOperation::Arc { paint, .. } => paint,
     }
 }
 
-fn draw_locators(image: &mut RgbaImage, scale: f64, fg: Rgba<u8>, radii: [f64; 3]) {
-    for (x, y) in geometry::LOCATORS {
-        let [outer, opening, core] = radii;
-        let center = point(x, y, scale);
-        draw_circle(image, center, outer * scale, fg);
-        draw_circle(image, center, opening * scale, white());
-        draw_circle(image, center, core * scale, fg);
-    }
-}
-
-fn append_svg_locators(svg: &mut String, fg: &str, radii: [f64; 3]) {
-    for (x, y) in geometry::LOCATORS {
-        let [outer, opening, core] = radii;
-        let (cx, cy) = svg_point(x, y);
-        writeln!(
-            svg,
-            r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{outer}" fill="{fg}"/>"#
-        )
-        .unwrap();
-        writeln!(
-            svg,
-            r##"<circle cx="{cx:.4}" cy="{cy:.4}" r="{opening}" fill="#fff"/>"##
-        )
-        .unwrap();
-        writeln!(
-            svg,
-            r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{core}" fill="{fg}"/>"#
-        )
-        .unwrap();
+fn append_svg_operation(svg: &mut String, operation: DrawOperation, foreground: &str) {
+    let color = match operation_paint(operation) {
+        Paint::Background => "#fff",
+        Paint::Foreground => foreground,
+    };
+    match operation {
+        DrawOperation::Circle { cx, cy, radius, .. } => {
+            writeln!(
+                svg,
+                r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{radius:.4}" fill="{color}"/>"#
+            )
+            .unwrap();
+        }
+        DrawOperation::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            width,
+            ..
+        } => {
+            writeln!(svg, r#"<line x1="{x1:.4}" y1="{y1:.4}" x2="{x2:.4}" y2="{y2:.4}" stroke="{color}" stroke-width="{width:.4}" stroke-linecap="round"/>"#).unwrap();
+        }
+        DrawOperation::Arc {
+            cx,
+            cy,
+            radius,
+            start_angle,
+            sweep_angle,
+            width,
+            ..
+        } => {
+            if sweep_angle.abs() >= std::f64::consts::TAU - 1e-9 {
+                writeln!(svg, r#"<circle cx="{cx:.4}" cy="{cy:.4}" r="{radius:.4}" fill="none" stroke="{color}" stroke-width="{width:.4}"/>"#).unwrap();
+                return;
+            }
+            let x1 = cx + radius * start_angle.cos();
+            let y1 = cy + radius * start_angle.sin();
+            let end_angle = start_angle + sweep_angle;
+            let x2 = cx + radius * end_angle.cos();
+            let y2 = cy + radius * end_angle.sin();
+            let large_arc = u8::from(sweep_angle.abs() > std::f64::consts::PI);
+            let sweep = u8::from(sweep_angle >= 0.0);
+            writeln!(svg, r#"<path d="M {x1:.4} {y1:.4} A {radius:.4} {radius:.4} 0 {large_arc} {sweep} {x2:.4} {y2:.4}" fill="none" stroke="{color}" stroke-width="{width:.4}" stroke-linecap="round"/>"#).unwrap();
+        }
     }
 }
 
@@ -407,6 +312,32 @@ fn draw_capsule(
                 blend_pixel(image, x, y, color);
             }
         }
+    }
+}
+
+fn draw_arc(
+    image: &mut RgbaImage,
+    center: (f64, f64),
+    arc: (f64, f64, f64, f64),
+    scale: f64,
+    color: Rgba<u8>,
+) {
+    let (arc_radius, start_angle, sweep_angle, stroke_radius) = arc;
+    let arc_length = arc_radius * sweep_angle.abs();
+    let segments = ((arc_length * scale / 1.5).ceil() as usize).max(2);
+    let mut previous = (
+        (center.0 + arc_radius * start_angle.cos()) * scale,
+        (center.1 + arc_radius * start_angle.sin()) * scale,
+    );
+    for index in 1..=segments {
+        let progress = index as f64 / segments as f64;
+        let angle = start_angle + sweep_angle * progress;
+        let current = (
+            (center.0 + arc_radius * angle.cos()) * scale,
+            (center.1 + arc_radius * angle.sin()) * scale,
+        );
+        draw_capsule(image, previous, current, stroke_radius * scale, color);
+        previous = current;
     }
 }
 
@@ -500,11 +431,20 @@ mod tests {
             &symbol,
             &RenderOptions {
                 style: Style::Dots,
-                ..options
+                ..options.clone()
             },
         )
         .unwrap();
         assert!(dots.contains("stroke-linecap=\"round\""));
+        let rings = render_svg(
+            &symbol,
+            &RenderOptions {
+                style: Style::Rings,
+                ..options
+            },
+        )
+        .unwrap();
+        assert!(rings.contains(" A "));
     }
 
     #[test]

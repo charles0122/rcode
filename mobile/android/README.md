@@ -18,6 +18,20 @@ cd mobile/android
 The AAR is written to `rcode-scanner/build/outputs/aar/`. Run JVM tests and lint
 with `./gradlew :rcode-scanner:testDebugUnitTest :rcode-scanner:lint`.
 
+## Encoding and drawing
+
+`RCodeEncoder` asks Rust for a `RenderPlan`; `RCodeRenderer` is a thin Android Canvas
+adapter and contains no protocol geometry:
+
+```kotlin
+val plan = RCodeEncoder().encode(
+    "hello".toByteArray(),
+    Profile(72, EccLevel.M),
+    RCodeStyle.RINGS,
+)
+val bitmap = RCodeRenderer.bitmap(plan, 768, 0xff173b32.toInt(), 0xffffffff.toInt())
+```
+
 ## Usage
 
 Add a `PreviewView` to the host screen, declare the camera permission in the app,

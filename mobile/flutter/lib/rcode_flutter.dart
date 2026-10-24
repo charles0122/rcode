@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +20,197 @@ enum ScanError {
 }
 
 enum ErrorCorrection { low, medium, quartile, high }
+
+enum RCodeStyle { lines, dots, rings }
+
+enum DrawKind { circle, line, arc }
+
+enum DrawPaint { background, foreground }
+
+@immutable
+class DrawCommand {
+  const DrawCommand({
+    required this.kind,
+    required this.paint,
+    required this.values,
+  });
+  final DrawKind kind;
+  final DrawPaint paint;
+  final List<double> values;
+}
+
+@immutable
+class RenderPlan {
+  const RenderPlan({
+    required this.version,
+    required this.viewport,
+    required this.logoRegion,
+    required this.commands,
+  });
+
+  final int version;
+  final double viewport;
+  final List<double> logoRegion;
+  final List<DrawCommand> commands;
+
+  factory RenderPlan.fromMap(Map<Object?, Object?> map) {
+    final logo = (map['logoRegion']! as List<Object?>).cast<num>();
+    final rawCommands = map['commands']! as List<Object?>;
+    final version = map['version']! as int;
+    if (version != 1) {
+      throw const FormatException('Unsupported RenderPlan version.');
+    }
+    return RenderPlan(
+      version: version,
+      viewport: (map['viewport']! as num).toDouble(),
+      logoRegion: List.unmodifiable(logo.map((value) => value.toDouble())),
+      commands: List.unmodifiable(
+        rawCommands.map((raw) {
+          final command = raw! as Map<Object?, Object?>;
+          return DrawCommand(
+            kind: DrawKind.values[command['kind']! as int],
+            paint: DrawPaint.values[command['paint']! as int],
+            values: List.unmodifiable(
+              (command['values']! as List<Object?>).cast<num>().map(
+                (value) => value.toDouble(),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class RCodeEncoder {
+  static const _methods = MethodChannel('rcode_flutter/methods');
+
+  Future<RenderPlan> encode(
+    Uint8List payload, {
+    ScanProfile profile = const ScanProfile(
+      spokes: 72,
+      errorCorrection: ErrorCorrection.medium,
+    ),
+    RCodeStyle style = RCodeStyle.lines,
+  }) async {
+    final map = await _methods
+        .invokeMapMethod<Object?, Object?>('encodePlan', <String, Object?>{
+          'payload': payload,
+          'spokes': profile.spokes,
+          'errorCorrection': profile.errorCorrection.index,
+          'style': style.index,
+        });
+    if (map == null) throw PlatformException(code: 'internal');
+    return RenderPlan.fromMap(map);
+  }
+}
+
+class RCodeView extends StatelessWidget {
+  const RCodeView({
+    super.key,
+    required this.plan,
+    this.foreground = const Color(0xFF173B32),
+    this.background = const Color(0xFFFFFFFF),
+    this.logo,
+  });
+
+  final RenderPlan plan;
+  final Color foreground;
+  final Color background;
+  final ui.Image? logo;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: _RCodePainter(plan, foreground, background, logo),
+    size: Size.infinite,
+  );
+}
+
+class _RCodePainter extends CustomPainter {
+  const _RCodePainter(this.plan, this.foreground, this.background, this.logo);
+  final RenderPlan plan;
+  final Color foreground;
+  final Color background;
+  final ui.Image? logo;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = math.min(size.width, size.height);
+    final origin = Offset((size.width - side) / 2, (size.height - side) / 2);
+    final scale = side / plan.viewport;
+    canvas.drawRect(Offset.zero & size, Paint()..color = background);
+    canvas.save();
+    canvas.translate(origin.dx, origin.dy);
+    canvas.scale(scale);
+    for (final command in plan.commands) {
+      final values = command.values;
+      final color = command.paint == DrawPaint.foreground
+          ? foreground
+          : background;
+      final brush = Paint()..color = color;
+      switch (command.kind) {
+        case DrawKind.circle:
+          canvas.drawCircle(Offset(values[0], values[1]), values[2], brush);
+        case DrawKind.line:
+          if (values[0] == values[2] && values[1] == values[3]) {
+            canvas.drawCircle(
+              Offset(values[0], values[1]),
+              values[4] / 2,
+              brush,
+            );
+          } else {
+            brush
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = values[4]
+              ..strokeCap = StrokeCap.round;
+            canvas.drawLine(
+              Offset(values[0], values[1]),
+              Offset(values[2], values[3]),
+              brush,
+            );
+          }
+        case DrawKind.arc:
+          brush
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = values[5]
+            ..strokeCap = StrokeCap.round;
+          canvas.drawArc(
+            Rect.fromCircle(
+              center: Offset(values[0], values[1]),
+              radius: values[2],
+            ),
+            values[3],
+            values[4],
+            false,
+            brush,
+          );
+      }
+    }
+    if (logo != null && plan.logoRegion.length == 3) {
+      final cx = plan.logoRegion[0];
+      final cy = plan.logoRegion[1];
+      final radius = plan.logoRegion[2];
+      final target = Rect.fromCircle(center: Offset(cx, cy), radius: radius);
+      canvas.save();
+      canvas.clipPath(Path()..addOval(target));
+      canvas.drawImageRect(
+        logo!,
+        Rect.fromLTWH(0, 0, logo!.width.toDouble(), logo!.height.toDouble()),
+        target,
+        Paint(),
+      );
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _RCodePainter oldDelegate) =>
+      oldDelegate.plan != plan ||
+      oldDelegate.foreground != foreground ||
+      oldDelegate.background != background ||
+      oldDelegate.logo != logo;
+}
 
 @immutable
 class Landmark {
@@ -84,11 +277,12 @@ class RCodeScannerController {
   StreamSubscription<Object?>? _subscription;
   int? _viewId;
   bool _delivered = false;
+  final _previewTextureId = ValueNotifier<int?>(null);
 
   Stream<ScanResult> get results => _results.stream;
   Stream<ScanError> get errors => _errors.stream;
 
-  Future<void> _attach(int viewId) async {
+  Future<void> _attach(int viewId, {int? textureId}) async {
     _viewId = viewId;
     _events = EventChannel('rcode_flutter/events/$viewId');
     await _subscription?.cancel();
@@ -108,6 +302,32 @@ class RCodeScannerController {
         _errors.add(ScanError.internal);
       },
     );
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      _previewTextureId.value = textureId ?? await _call<int>('textureId');
+    }
+  }
+
+  Future<void> _attachIos() async {
+    final response = await _methods.invokeMapMethod<Object?, Object?>(
+      'createScanner',
+    );
+    if (response == null) throw PlatformException(code: 'internal');
+    await _attach(
+      response['viewId']! as int,
+      textureId: response['textureId']! as int,
+    );
+  }
+
+  Future<void> _detachIos() async {
+    final id = _viewId;
+    if (id == null) return;
+    _viewId = null;
+    _previewTextureId.value = null;
+    await _subscription?.cancel();
+    _subscription = null;
+    await _methods.invokeMethod<void>('disposeScanner', <String, Object?>{
+      'viewId': id,
+    });
   }
 
   @visibleForTesting
@@ -149,10 +369,15 @@ class RCodeScannerController {
   }
 
   Future<void> dispose() async {
-    await stopIfAttached();
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await _detachIos();
+    } else {
+      await stopIfAttached();
+    }
     await _subscription?.cancel();
     await _results.close();
     await _errors.close();
+    _previewTextureId.dispose();
     _viewId = null;
   }
 
@@ -174,10 +399,31 @@ class RCodeScannerView extends StatelessWidget {
   );
 }
 
-class _NativePreview extends StatelessWidget {
+class _NativePreview extends StatefulWidget {
   const _NativePreview(this.controller);
 
   final RCodeScannerController controller;
+
+  @override
+  State<_NativePreview> createState() => _NativePreviewState();
+}
+
+class _NativePreviewState extends State<_NativePreview> {
+  @override
+  void initState() {
+    super.initState();
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      unawaited(widget.controller._attachIos());
+    }
+  }
+
+  @override
+  void dispose() {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      unawaited(widget.controller._detachIos());
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -187,15 +433,21 @@ class _NativePreview extends StatelessWidget {
         viewType: 'rcode_flutter/preview',
         creationParams: creationParams,
         creationParamsCodec: const StandardMessageCodec(),
-        onPlatformViewCreated: controller._attach,
+        onPlatformViewCreated: widget.controller._attach,
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return UiKitView(
-        viewType: 'rcode_flutter/preview',
-        creationParams: creationParams,
-        creationParamsCodec: const StandardMessageCodec(),
-        onPlatformViewCreated: controller._attach,
+      return Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          const ColoredBox(color: Color(0xFF101010)),
+          ValueListenableBuilder<int?>(
+            valueListenable: widget.controller._previewTextureId,
+            builder: (context, textureId, child) => textureId == null
+                ? const SizedBox.shrink()
+                : Texture(textureId: textureId),
+          ),
+        ],
       );
     }
     return const Center(

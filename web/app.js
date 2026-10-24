@@ -93,6 +93,7 @@
 
   const state = {
     logoBase64: null,
+    logoMime: null,
     logoSequence: 0,
     logoUrl: null,
     previewKind: "png",
@@ -139,18 +140,6 @@
   function replaceObjectUrl(oldUrl, blob) {
     if (oldUrl) URL.revokeObjectURL(oldUrl);
     return blob ? URL.createObjectURL(blob) : null;
-  }
-
-  function base64ToBlob(value, type) {
-    const raw = String(value || "").replace(/^data:[^,]+,/, "");
-    const binary = atob(raw);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return new Blob([bytes], { type });
-  }
-
-  function imageDataUrl(base64, type = "image/png") {
-    return `data:${type};base64,${base64}`;
   }
 
   function loadImage(source) {
@@ -283,7 +272,7 @@
     state.generated.pngUrl = replaceObjectUrl(state.generated.pngUrl, null);
     state.generated.svgUrl = replaceObjectUrl(state.generated.svgUrl, null);
     state.generated = null;
-    refs.encodePngImage.removeAttribute("src");
+    refs.encodePngImage.getContext("2d").clearRect(0, 0, refs.encodePngImage.width, refs.encodePngImage.height);
     refs.encodeSvgImage.removeAttribute("src");
     refs.encodePngImage.hidden = true;
     refs.encodeSvgImage.hidden = true;
@@ -296,17 +285,114 @@
     updateLabSources();
   }
 
-  function renderGenerated(payload, options) {
-    const pngBlob = base64ToBlob(payload.png_base64, "image/png");
-    const svgText = typeof payload.svg === "string" ? payload.svg : "";
-    if (!pngBlob.size || !svgText) throw new ApiError("编码服务没有返回完整图像。");
+  function planColor(operation, foreground) {
+    return operation.paint === "background" ? "#FFFFFF" : foreground;
+  }
+
+  async function drawPlan(canvas, plan, options) {
+    if (!plan || plan.version !== 1 || !Number.isFinite(plan.viewport) || !Array.isArray(plan.operations)) {
+      throw new ApiError("编码服务没有返回有效绘制计划。");
+    }
+    canvas.width = options.size;
+    canvas.height = options.size;
+    const context = canvas.getContext("2d");
+    const scale = options.size / plan.viewport;
+    context.fillStyle = "#FFFFFF";
+    context.fillRect(0, 0, options.size, options.size);
+    context.save();
+    context.scale(scale, scale);
+    for (const operation of plan.operations) {
+      const values = operation.values;
+      if (!Array.isArray(values) || values.length !== 6) throw new ApiError("绘制指令格式无效。");
+      context.fillStyle = planColor(operation, options.foreground);
+      context.strokeStyle = planColor(operation, options.foreground);
+      context.lineCap = "round";
+      if (operation.kind === "circle") {
+        context.beginPath();
+        context.arc(values[0], values[1], values[2], 0, Math.PI * 2);
+        context.fill();
+      } else if (operation.kind === "line") {
+        if (values[0] === values[2] && values[1] === values[3]) {
+          context.beginPath();
+          context.arc(values[0], values[1], values[4] / 2, 0, Math.PI * 2);
+          context.fill();
+        } else {
+          context.lineWidth = values[4];
+          context.beginPath();
+          context.moveTo(values[0], values[1]);
+          context.lineTo(values[2], values[3]);
+          context.stroke();
+        }
+      } else if (operation.kind === "arc") {
+        context.lineWidth = values[5];
+        context.beginPath();
+        context.arc(values[0], values[1], values[2], values[3], values[3] + values[4], values[4] < 0);
+        context.stroke();
+      } else {
+        throw new ApiError("绘制计划包含未知指令。");
+      }
+    }
+    if (state.logoUrl && Array.isArray(plan.logo_region)) {
+      const image = await loadImage(state.logoUrl);
+      const [cx, cy, radius] = plan.logo_region;
+      context.save();
+      context.beginPath();
+      context.arc(cx, cy, radius, 0, Math.PI * 2);
+      context.clip();
+      context.drawImage(image, cx - radius, cy - radius, radius * 2, radius * 2);
+      context.restore();
+    }
+    context.restore();
+  }
+
+  function planSvg(plan, options) {
+    const elements = [`<svg xmlns="http://www.w3.org/2000/svg" width="${options.size}" height="${options.size}" viewBox="0 0 ${plan.viewport} ${plan.viewport}" role="img" aria-label="RCode">`, `<rect width="100%" height="100%" fill="#fff"/>`];
+    for (const operation of plan.operations) {
+      const v = operation.values;
+      const color = planColor(operation, options.foreground);
+      if (operation.kind === "circle" || (operation.kind === "line" && v[0] === v[2] && v[1] === v[3])) {
+        const radius = operation.kind === "circle" ? v[2] : v[4] / 2;
+        elements.push(`<circle cx="${v[0]}" cy="${v[1]}" r="${radius}" fill="${color}"/>`);
+      } else if (operation.kind === "line") {
+        elements.push(`<line x1="${v[0]}" y1="${v[1]}" x2="${v[2]}" y2="${v[3]}" stroke="${color}" stroke-width="${v[4]}" stroke-linecap="round"/>`);
+      } else if (operation.kind === "arc") {
+        if (Math.abs(v[4]) >= Math.PI * 2 - 1e-9) {
+          elements.push(`<circle cx="${v[0]}" cy="${v[1]}" r="${v[2]}" fill="none" stroke="${color}" stroke-width="${v[5]}"/>`);
+        } else {
+          const end = v[3] + v[4];
+          const x1 = v[0] + v[2] * Math.cos(v[3]);
+          const y1 = v[1] + v[2] * Math.sin(v[3]);
+          const x2 = v[0] + v[2] * Math.cos(end);
+          const y2 = v[1] + v[2] * Math.sin(end);
+          const large = Math.abs(v[4]) > Math.PI ? 1 : 0;
+          const sweep = v[4] >= 0 ? 1 : 0;
+          elements.push(`<path d="M ${x1} ${y1} A ${v[2]} ${v[2]} 0 ${large} ${sweep} ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${v[5]}" stroke-linecap="round"/>`);
+        }
+      }
+    }
+    if (state.logoBase64 && Array.isArray(plan.logo_region)) {
+      const [cx, cy, radius] = plan.logo_region;
+      elements.push(`<defs><clipPath id="rcode-logo"><circle cx="${cx}" cy="${cy}" r="${radius}"/></clipPath></defs>`);
+      elements.push(`<image x="${cx - radius}" y="${cy - radius}" width="${radius * 2}" height="${radius * 2}" href="data:${state.logoMime || "image/png"};base64,${state.logoBase64}" preserveAspectRatio="none" clip-path="url(#rcode-logo)"/>`);
+    }
+    elements.push("</svg>");
+    return elements.join("");
+  }
+
+  function canvasBlob(canvas) {
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new ApiError("浏览器无法导出 PNG。")), "image/png"));
+  }
+
+  async function renderGenerated(payload, options) {
+    await drawPlan(refs.encodePngImage, payload.plan, options);
+    const pngBlob = await canvasBlob(refs.encodePngImage);
+    const svgText = planSvg(payload.plan, options);
     const pngUrl = URL.createObjectURL(pngBlob);
     const svgUrl = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml" }));
     clearGenerated();
     state.generated = { pngBlob, pngUrl, svgText, svgUrl, byteLength: Number(payload.byte_length) || byteLength(options.text), size: options.size };
-    refs.encodePngImage.src = pngUrl;
     refs.encodeSvgImage.src = svgUrl;
-    refs.encodePngImage.alt = `生成的 ${options.size}px RCode PNG`;
+    refs.encodePngImage.setAttribute("aria-label", `生成的 ${options.size}px RCode PNG`);
     refs.encodeSvgImage.alt = `生成的 ${options.size}px RCode SVG`;
     refs.encodeEmpty.hidden = true;
     refs.outputBytes.textContent = String(state.generated.byteLength);
@@ -342,7 +428,7 @@
         signal: controller.signal,
       });
       if (sequence !== state.encodeSequence) return;
-      renderGenerated(payload, options);
+      await renderGenerated(payload, options);
       setStatus(refs.encodeStatus, "已生成，可下载或直接验证。", "success");
     } catch (error) {
       if (error.name === "AbortError" || sequence !== state.encodeSequence) return;
@@ -417,6 +503,7 @@
         return;
       }
       state.logoBase64 = dataUrl.slice(comma + 1);
+      state.logoMime = file.type;
       state.logoUrl = replaceObjectUrl(state.logoUrl, file);
       refs.logoImage.src = state.logoUrl;
       refs.logoName.textContent = file.name;
@@ -432,6 +519,7 @@
   function clearLogo() {
     state.logoSequence += 1;
     state.logoBase64 = null;
+    state.logoMime = null;
     state.logoUrl = replaceObjectUrl(state.logoUrl, null);
     refs.logoImage.removeAttribute("src");
     refs.logoName.textContent = "";

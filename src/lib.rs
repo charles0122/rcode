@@ -7,12 +7,16 @@
 mod codec;
 mod decode;
 pub mod geometry;
+mod plan;
 mod profile;
 pub mod render;
 pub use profile::{EccLevel, Profile};
 
 pub use decode::{DecodeResult, Landmark, decode_image, decode_luma8};
-pub use render::{RenderOptions, Style, render_png, render_svg};
+pub use plan::{
+    DrawOperation, Paint, RENDER_PLAN_VERSION, RenderPlan, Style, VIEWPORT, build_render_plan,
+};
+pub use render::{RenderOptions, render_png, render_svg};
 
 /// Errors reported by the encoder, renderer, and decoder.
 #[derive(Debug, Clone, PartialEq, Eq)]

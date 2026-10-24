@@ -171,6 +171,8 @@ textarea[aria-invalid="true"], .text-input[aria-invalid="true"] { border-color: 
 
 .dots-glyph { border: 1.5px solid var(--green); border-radius: 50%; box-shadow: 5px 0 0 -3px var(--green), -5px 0 0 -3px var(--green), 0 5px 0 -3px var(--green), 0 -5px 0 -3px var(--green); }
 
+.rings-glyph { border: 1.5px dashed var(--green); border-radius: 50%; box-shadow: inset 0 0 0 2.5px var(--surface), inset 0 0 0 4px var(--green); }
+
 .color-control { display: flex; gap: 7px; align-items: center; }
 
 .color-control input[type="color"] { width: 31px; height: 31px; border: 0; padding: 0; background: none; border-radius: 7px; overflow: hidden; cursor: pointer; }

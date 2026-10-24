@@ -348,7 +348,8 @@ fn parse_style(value: &str) -> Result<Style, String> {
     match value.to_ascii_lowercase().as_str() {
         "dots" => Ok(Style::Dots),
         "lines" => Ok(Style::Lines),
-        _ => Err("--style must be `lines` or `dots`".to_owned()),
+        "rings" => Ok(Style::Rings),
+        _ => Err("--style must be `lines`, `dots` or `rings`".to_owned()),
     }
 }
 
@@ -385,7 +386,7 @@ fn usage() -> String {
 fn print_usage() {
     println!(
         "rcode\n\n\
-         Encode: rcode encode --text TEXT --output code.png [--spokes 72] [--ecc L|M|Q|H] [--size 768] [--style lines|dots] [--foreground #111827] [--logo logo.png]\n\
+         Encode: rcode encode --text TEXT --output code.png [--spokes 72] [--ecc L|M|Q|H] [--size 768] [--style lines|dots|rings] [--foreground #111827] [--logo logo.png]\n\
          Decode: rcode decode code.png\n\
          Camera benchmark: rcode camera-bench path/to/manifest.json\n\
          Serve:  rcode serve [--port 8787]\n"

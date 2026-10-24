@@ -1,6 +1,6 @@
 # RCode
 
-Rust 实现的开放圆形异形码，支持编码、图片解码，以及本地网页工作台。采用放射线条、四个相同的黑白黑定位点和独立中央 Logo 留白。自定义码制不兼容微信或标准 QR 扫码器。
+Rust 实现的开放圆形异形码，支持编码、图片解码，以及本地网页工作台。支持放射线、圆点和增量断点圆环三种数据外观，采用四个相同的黑白黑定位点和独立中央 Logo 留白。自定义码制不兼容微信或标准 QR 扫码器。
 
 ## 启动
 
@@ -10,11 +10,12 @@ Rust 实现的开放圆形异形码，支持编码、图片解码，以及本地
 cargo run --release -- serve
 ```
 
-打开 http://127.0.0.1:8787 。编码页输入文本并调整圆点/放射线、深色前景色、尺寸及 Logo；下载 PNG/SVG，或点击“验证当前码”。解码页支持选择、拖放和粘贴 PNG/JPEG。耐受实验对真实像素进行旋转、缩放和加噪，再调用同一解码器。
+打开 http://127.0.0.1:8787 。编码页输入文本并调整放射线/圆点/断点圆环、深色前景色、尺寸及 Logo；下载 PNG/SVG，或点击“验证当前码”。解码页支持选择、拖放和粘贴 PNG/JPEG。耐受实验对真实像素进行旋转、缩放和加噪，再调用同一解码器。
 
 ```sh
 cargo run --release -- encode --text '你好，RCode 👋' --output code.png
 cargo run --release -- encode --text 'https://example.com' --output code.svg --style dots
+cargo run --release -- encode --text 'broken rings' --output rings.svg --style rings
 cargo run --release -- decode code.png
 cargo run --release -- serve --port 8788
 ```
@@ -32,6 +33,19 @@ fn main() -> rcode::Result<()> {
     Ok(())
 }
 ```
+
+业务 SDK 不需要让 Rust 生成图片。`build_render_plan` 返回固定 128×128 逻辑坐标中的
+圆、圆头线段和圆头弧指令，由 Android Canvas、iOS CoreGraphics、Flutter
+CustomPainter 或 Web Canvas 绘制：
+
+```rust
+use rcode::{Profile, Style, build_render_plan, encode};
+let symbol = encode(b"cross platform", Profile::default())?;
+let plan = build_render_plan(&symbol, Style::Rings)?;
+# Ok::<(), rcode::Error>(())
+```
+
+跨端模型、坐标语义和扩展规则见 [RenderPlan 设计](docs/render-plan.md)。
 
 ## 边界
 
@@ -80,7 +94,7 @@ RCode 是可离线生成、离线解码的通用二进制码；微信小程序�
 
 ## HTTP
 
-`POST /api/encode`：JSON `{"text":"你好","spokes":72,"ecc":"M","size":768,"foreground":"#173B32","style":"lines"}`，可选 `logo_base64`。返回 `png_base64`、`svg`、`byte_length` 和 `profile`（线数、纠错档位、容量与纠错字节数）。`GET /api/profiles` 提供 12 档权威容量数据。
+`POST /api/encode`：JSON `{"text":"你好","spokes":72,"ecc":"M","size":768,"foreground":"#173B32","style":"lines"}`，可选 `logo_base64`。返回平台无关的 `plan`、`byte_length` 和 `profile`；Web 工作台用 Canvas/SVG API 在浏览器侧绘制并导出图片。`GET /api/profiles` 提供 12 档权威容量数据。
 
 `POST /api/decode`：请求体直接为 PNG/JPEG 字节。返回 `text`（非 UTF-8 为 null）、`payload_base64`、`byte_length`、`corrected_bytes`、原图中的 `landmarks`、`width`、`height`、`profile`。错误使用非 2xx 状态和 `{"error":"..."}`。
 
@@ -94,14 +108,15 @@ cargo build --workspace --release
 node --check web/app.js # 可选；运行工作台不需要 Node
 ```
 
-测试覆盖协议固定向量、内容边界、1/16/32 字节纠错、CRC/版本/补零拒绝、两种渲染样式、Logo、PNG/JPEG、单独噪声与模糊、200 组固定种子旋转缩放、无效输入及尺寸限制。浏览器验收记录见 [验证记录](docs/validation.md)。
+测试覆盖协议固定向量、内容边界、1/16/32 字节纠错、CRC/版本/补零拒绝、三种渲染样式、Logo、PNG/JPEG、单独噪声与模糊、200 组固定种子旋转缩放、无效输入及尺寸限制。浏览器验收记录见 [验证记录](docs/validation.md)。
 
 协议、几何及掩码定义见 [当前协议](docs/format.md)。
 
 ## 移动端 SDK
 
-同一 Rust 核心通过稳定 C ABI 供 [Android SDK](mobile/android/README.md)、
+同一 Rust 核心通过稳定 C ABI 和 WASM 供 [Android SDK](mobile/android/README.md)、
 [Apple Swift Package](mobile/apple/README.md) 和 [Flutter 插件](mobile/flutter/README.md)
-复用；三端不重复实现协议与解码算法。先运行 `scripts/build-mobile-core.sh` 生成 Android
+复用；Web 使用 [`rcode-wasm`](wasm/README.md)。各端只适配画布与相机，不重复实现协议、
+排版或解码算法。先运行 `scripts/build-mobile-core.sh` 生成 Android
 双 ABI 动态库和 Apple XCFramework。开发里程碑、已验证范围及真机发布门槛见
 [移动端 SDK 计划](docs/mobile-sdk-plan.md)。

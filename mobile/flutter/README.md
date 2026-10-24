@@ -15,6 +15,14 @@ final imageResult = await scanner.decodeImage(encodedImageBytes); // independent
 // Listen to scanner.results and scanner.errors; call scanner.dispose() when finished.
 ```
 
+Encoding returns the same platform-neutral plan used by the native SDKs. `RCodeView`
+draws it with one `CustomPainter` implementation:
+
+```dart
+final plan = await RCodeEncoder().encode(payload, style: RCodeStyle.rings);
+final widget = RCodeView(plan: plan);
+```
+
 The example app demonstrates the preview, overlay, permission request, torch, and result UI.
 `decodeImage(Uint8List)` decodes one PNG/JPEG on the native platform and returns the same
 `ScanResult` model without opening the camera. Only this explicit one-image call sends image bytes

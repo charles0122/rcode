@@ -93,3 +93,23 @@
 
 本轮没有可用 Android 真机或 iPhone。相机预览、实际扫码、旋转/前后台交互、95%
 样本成功率、720p P95 和五分钟队列/内存门槛均未声称通过，仍是发布前验收项。
+
+## 增量断点圆环风格（当前）
+
+第三种 `rings` 渲染风格将同一批数据采样点改画为同心圆上的圆头弧段，相邻黑格
+连接、白格形成断点，弧长随半径递增；协议、容量和解码采样位置不变。定位器候选
+增加黑白黑径向签名校验，避免密集圆弧产生的伪候选挤占四个真实定位点。
+
+当前 Rust 共 33 个测试。三种风格均覆盖内容边界、Logo、200 组固定种子旋转缩放、
+12 个 profile 的 384px 满容量/37.5° 旋转/高斯噪声，以及四点非仿射透视；圆环
+样式另在 384/768px 对 36/54/72 线检查相邻圆环间亮度大于 150，并回读 payload。
+
+## RenderPlan 跨端绘制（当前）
+
+Rust PNG/SVG 参考 renderer 已改为消费公共 RenderPlan。C ABI v2 的编码计划、空指针、
+非法 profile/style 和批量 operation 生命周期有自动化测试；Android Debug AAR/JNI
+双 ABI 构建与 JVM 测试通过。Apple 在 iPhone 18 Pro 模拟器执行 7 项测试，其中
+CoreGraphics 实际绘制 `rings` 计划后由同一核心成功回读。Flutter 5 项测试和 analyze
+通过，覆盖计划通道与 CustomPainter。Web 工作台由 Canvas 绘制 768px 圆环计划，回读
+“跨端 RenderPlan 圆环”且纠正字节为 0；控制台无错误。`rcode-wasm` 已针对
+`wasm32-unknown-unknown` 完成 release 构建。

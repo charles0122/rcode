@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="-64 -64 128 128">
+  <title>RCode incremental broken-ring concept</title>
+  <desc>Twenty-two concentric data rings whose arc lengths grow with radius, interrupted by encoded gaps, with four fixed locator marks and a central quiet area.</desc>
+
+  <rect x="-64" y="-64" width="128" height="128" rx="4" fill="#ffffff"/>
+
+  <!-- A shared inner boundary keeps the data field visually anchored. -->
+  <circle cx="0" cy="0" r="22" fill="none" stroke="#173b32" stroke-width="1.15"/>
+
+  <!-- Concept data: each outward ring has a larger circumference; dark arcs and
+       white breaks occupy angular cells, so the visible arc lengths increase
+       naturally from the centre to the edge. -->
+  <g fill="none" stroke="#173b32" stroke-width="0.92" stroke-linecap="round" pathLength="144">
+    <circle r="25.0" stroke-dasharray="7 1 3 2 10 1 4 2 6 1 2 3" stroke-dashoffset="3"/>
+    <circle r="26.5" stroke-dasharray="4 1 8 2 3 1 11 2 5 2 7 1" stroke-dashoffset="9"/>
+    <circle r="28.0" stroke-dasharray="9 2 2 1 6 2 4 1 12 2 3 2" stroke-dashoffset="14"/>
+    <circle r="29.5" stroke-dasharray="5 2 3 1 9 1 6 3 2 1 10 2" stroke-dashoffset="5"/>
+    <circle r="31.0" stroke-dasharray="11 1 4 2 2 2 7 1 5 3 8 1" stroke-dashoffset="18"/>
+    <circle r="32.5" stroke-dasharray="3 1 7 2 10 2 4 1 6 2 2 2" stroke-dashoffset="11"/>
+    <circle r="34.0" stroke-dasharray="8 2 5 1 3 3 9 1 2 2 11 1" stroke-dashoffset="1"/>
+    <circle r="35.5" stroke-dasharray="6 1 2 2 12 1 5 2 3 2 8 2" stroke-dashoffset="16"/>
+    <circle r="37.0" stroke-dasharray="4 2 10 1 3 2 7 2 5 1 9 2" stroke-dashoffset="7"/>
+    <circle r="38.5" stroke-dasharray="10 2 4 1 6 1 2 3 8 2 5 1" stroke-dashoffset="21"/>
+    <circle r="40.0" stroke-dasharray="5 1 9 2 2 2 11 1 4 3 6 1" stroke-dashoffset="12"/>
+    <circle r="41.5" stroke-dasharray="7 2 3 2 8 1 5 1 10 3 2 1" stroke-dashoffset="4"/>
+    <circle r="43.0" stroke-dasharray="2 1 11 2 6 2 4 1 9 2 5 2" stroke-dashoffset="19"/>
+    <circle r="44.5" stroke-dasharray="9 1 5 2 3 2 7 1 12 2 2 2" stroke-dashoffset="8"/>
+    <circle r="46.0" stroke-dasharray="6 2 10 1 2 1 5 3 8 1 4 2" stroke-dashoffset="24"/>
+    <circle r="47.5" stroke-dasharray="3 2 7 1 11 2 4 2 6 1 9 1" stroke-dashoffset="15"/>
+    <circle r="49.0" stroke-dasharray="8 1 2 2 5 1 10 3 4 1 7 2" stroke-dashoffset="6"/>
+    <circle r="50.5" stroke-dasharray="4 2 9 1 6 2 3 1 11 2 5 1" stroke-dashoffset="20"/>
+    <circle r="52.0" stroke-dasharray="10 1 3 3 7 1 2 2 8 2 5 1" stroke-dashoffset="10"/>
+    <circle r="53.5" stroke-dasharray="5 2 8 1 4 2 12 1 3 2 6 2" stroke-dashoffset="26"/>
+    <circle r="55.0" stroke-dasharray="7 1 4 2 9 2 2 1 10 2 5 2" stroke-dashoffset="13"/>
+    <circle r="56.5" stroke-dasharray="3 2 11 1 5 2 7 1 4 3 9 1" stroke-dashoffset="2"/>
+  </g>
+
+  <!-- Clear the data field around the four stable locator positions. -->
+  <g fill="#ffffff">
+    <circle cx="-34" cy="-34" r="9.7"/>
+    <circle cx="34" cy="-34" r="9.7"/>
+    <circle cx="-34" cy="34" r="9.7"/>
+    <circle cx="34" cy="34" r="9.7"/>
+  </g>
+
+  <!-- Four equal black-white-black locators, ordered TL/TR/BL/BR. -->
+  <g fill="#173b32">
+    <circle cx="-34" cy="-34" r="5.2"/><circle cx="34" cy="-34" r="5.2"/>
+    <circle cx="-34" cy="34" r="5.2"/><circle cx="34" cy="34" r="5.2"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="-34" cy="-34" r="3.5"/><circle cx="34" cy="-34" r="3.5"/>
+    <circle cx="-34" cy="34" r="3.5"/><circle cx="34" cy="34" r="3.5"/>
+  </g>
+  <g fill="#173b32">
+    <circle cx="-34" cy="-34" r="1.1"/><circle cx="34" cy="-34" r="1.1"/>
+    <circle cx="-34" cy="34" r="1.1"/><circle cx="34" cy="34" r="1.1"/>
+  </g>
+
+  <!-- Central quiet area / logo reserve. -->
+  <circle cx="0" cy="0" r="18.7" fill="#ffffff"/>
+  <circle cx="0" cy="0" r="17.2" fill="none" stroke="#173b32" stroke-width="0.8"/>
+  <text x="0" y="-1" fill="#173b32" font-family="system-ui, sans-serif" font-size="6.4" font-weight="700" text-anchor="middle">RCODE</text>
+  <text x="0" y="6" fill="#527068" font-family="system-ui, sans-serif" font-size="3.2" letter-spacing="0.8" text-anchor="middle">RINGS</text>
+</svg>

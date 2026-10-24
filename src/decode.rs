@@ -372,6 +372,10 @@ fn locate(binary: &Binary) -> Vec<Candidate> {
                             && (vr - hr).abs() < (vr + hr) * 0.3
                         {
                             let radius = (vr + hr) / 2.;
+                            if !finder_signature(binary, cx, cy, radius) {
+                                start = end;
+                                continue;
+                            }
                             if let Some(existing) = found.iter_mut().find(|p| {
                                 (p.x - cx).hypot(p.y - cy) < radius * 0.4
                                     && (p.radius - radius).abs() < radius * 0.3
@@ -398,6 +402,26 @@ fn locate(binary: &Binary) -> Vec<Candidate> {
     }
     found.retain(|p| p.hits >= 2);
     found
+}
+
+fn finder_signature(binary: &Binary, x: f64, y: f64, radius: f64) -> bool {
+    let sample = |distance: f64, angle: f64| {
+        let px = (x + radius * distance * angle.cos()).round() as isize;
+        let py = (y + radius * distance * angle.sin()).round() as isize;
+        (px >= 0 && py >= 0 && px < binary.width as isize && py < binary.height as isize)
+            .then(|| binary.at(px as usize, py as usize))
+    };
+    if sample(0.0, 0.0) != Some(true) {
+        return false;
+    }
+    let mut white = 0;
+    let mut outer = 0;
+    for index in 0..8 {
+        let angle = std::f64::consts::TAU * f64::from(index) / 8.0;
+        white += usize::from(sample(0.44, angle) == Some(false));
+        outer += usize::from(sample(0.82, angle) == Some(true));
+    }
+    white >= 6 && outer >= 6
 }
 
 struct Transform {

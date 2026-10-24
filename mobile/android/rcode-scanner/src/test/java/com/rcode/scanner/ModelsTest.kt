@@ -76,4 +76,35 @@ class ModelsTest {
         assertEquals(listOf(Landmark(77f, 12f)), mapped)
         assertNull(PreviewCoordinates.map(emptyList(), floatArrayOf(1f)))
     }
+
+    @Test
+    fun nativeDrawingPlanMapsWithoutProtocolGeometry() {
+        val plan = mapNativePlan(
+            NativePlanResponse(
+                status = 0,
+                version = 1,
+                viewport = 128.0,
+                logoX = 64.0,
+                logoY = 64.0,
+                logoRadius = 20.0,
+                kinds = intArrayOf(0, 1, 2),
+                paints = intArrayOf(0, 1, 1),
+                values = doubleArrayOf(
+                    64.0, 64.0, 22.0, 0.0, 0.0, 0.0,
+                    10.0, 10.0, 20.0, 20.0, 1.4, 0.0,
+                    64.0, 64.0, 40.0, 0.0, 1.0, 0.8,
+                ),
+            ),
+        )
+        assertNotNull(plan)
+        assertEquals(1, plan!!.version)
+        assertEquals(128.0, plan.viewport, 0.0)
+        assertEquals(listOf(DrawKind.CIRCLE, DrawKind.LINE, DrawKind.ARC), plan.commands.map { it.kind })
+        assertEquals(DrawPaint.BACKGROUND, plan.commands.first().paint)
+        assertNull(
+            mapNativePlan(
+                NativePlanResponse(0, 1, 128.0, 64.0, 64.0, 20.0, intArrayOf(9), intArrayOf(0), DoubleArray(6)),
+            ),
+        )
+    }
 }

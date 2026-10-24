@@ -4,6 +4,14 @@ import XCTest
 @testable import RCodeApple
 
 final class SDKTests: XCTestCase {
+    func testScannerUsesProvidedPreviewLayer() {
+        let layer = AVCaptureVideoPreviewLayer()
+        let scanner = RCodeScanner(previewLayer: layer)
+
+        XCTAssertTrue(scanner.previewLayer === layer)
+        XCTAssertTrue(layer.session === scanner.session)
+    }
+
     func testScanModelsPreservePayloadAndMetadata() {
         let result = ScanResult(payload: Data([0, 1, 255]), imageWidth: 640, imageHeight: 480,
                                landmarks: [Landmark(x: 10, y: 20)],
@@ -68,5 +76,22 @@ final class SDKTests: XCTestCase {
         XCTAssertEqual(decoded.payload, Data("apple-image-fixture".utf8))
         XCTAssertEqual(decoded.profile, Profile(spokes: 54, errorCorrection: .quartile))
         XCTAssertEqual(decoded.landmarks.count, 4)
+    }
+
+    func testRenderPlanAndCoreGraphicsRoundTrip() throws {
+        let payload = Data("apple render plan".utf8)
+        let plan = try RCodeEncoder().encode(
+            payload,
+            profile: Profile(spokes: 72, errorCorrection: .medium),
+            style: .rings
+        )
+        XCTAssertEqual(plan.version, 1)
+        XCTAssertEqual(plan.viewport, 128)
+        XCTAssertEqual(plan.logoCenter, CGPoint(x: 64, y: 64))
+        XCTAssertTrue(plan.commands.contains { $0.kind == .arc })
+
+        let image = RCodeRenderer.image(plan: plan, size: 512)
+        let decoded = try LumaDecoder().decode(image: image)
+        XCTAssertEqual(decoded.payload, payload)
     }
 }

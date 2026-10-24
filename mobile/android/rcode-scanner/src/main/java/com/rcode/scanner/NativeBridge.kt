@@ -13,6 +13,18 @@ internal class NativeResponse(
     val eccId: Int,
 )
 
+internal class NativePlanResponse(
+    val status: Int,
+    val version: Int,
+    val viewport: Double,
+    val logoX: Double,
+    val logoY: Double,
+    val logoRadius: Double,
+    val kinds: IntArray,
+    val paints: IntArray,
+    val values: DoubleArray,
+)
+
 internal object NativeBridge {
     init {
         System.loadLibrary("rcode_jni")
@@ -24,4 +36,11 @@ internal object NativeBridge {
         height: Int,
         rowStride: Int,
     ): NativeResponse
+
+    external fun nativeEncodePlan(
+        payload: ByteArray,
+        spokes: Int,
+        eccId: Int,
+        styleId: Int,
+    ): NativePlanResponse
 }

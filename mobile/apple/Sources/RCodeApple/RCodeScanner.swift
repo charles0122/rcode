@@ -3,10 +3,11 @@ import Foundation
 import UIKit
 
 public final class RCodeScanner: NSObject, @unchecked Sendable {
-    public let session = AVCaptureSession()
+    public let session: AVCaptureSession
     public let previewLayer: AVCaptureVideoPreviewLayer
     public var onResult: ((ScanResult) -> Void)?
     public var onError: ((ScanError) -> Void)?
+    public var onFrame: ((CVPixelBuffer) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "com.rcode.camera.session")
     private let analysisQueue = DispatchQueue(label: "com.rcode.camera.analysis")
@@ -16,9 +17,16 @@ public final class RCodeScanner: NSObject, @unchecked Sendable {
     private let resultGate = ScanResultGate()
     private let scanIntent = ScanIntent()
 
-    public override init() {
-        previewLayer = AVCaptureVideoPreviewLayer(session: session)
+    public override convenience init() {
+        self.init(previewLayer: AVCaptureVideoPreviewLayer())
+    }
+
+    public init(previewLayer: AVCaptureVideoPreviewLayer) {
+        let session = AVCaptureSession()
+        self.session = session
+        self.previewLayer = previewLayer
         super.init()
+        previewLayer.session = session
         previewLayer.videoGravity = .resizeAspectFill
         NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground),
                                                name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -126,14 +134,20 @@ public final class RCodeScanner: NSObject, @unchecked Sendable {
         session.addOutput(output)
         if let connection = output.connection(with: .video) {
             connection.videoOrientation = .portrait
-            connection.isVideoMirrored = false
+            disableVideoMirroring(on: connection)
         }
         if let connection = previewLayer.connection {
             connection.videoOrientation = .portrait
-            connection.isVideoMirrored = false
+            disableVideoMirroring(on: connection)
         }
         videoOutput = output
         configured = true
+    }
+
+    private func disableVideoMirroring(on connection: AVCaptureConnection) {
+        guard connection.isVideoMirroringSupported else { return }
+        connection.automaticallyAdjustsVideoMirroring = false
+        connection.isVideoMirrored = false
     }
 
     private func report(_ error: ScanError) {
@@ -152,6 +166,7 @@ extension RCodeScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
                               from connection: AVCaptureConnection) {
         guard resultGate.canDecode,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        onFrame?(pixelBuffer)
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         guard CVPixelBufferGetPlaneCount(pixelBuffer) > 0,

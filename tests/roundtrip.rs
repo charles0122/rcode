@@ -74,7 +74,7 @@ fn png_roundtrip_covers_utf8_binary_boundary_and_styles() {
     }
     let payloads = vec![Vec::new(), "你好，RCode 🌀".as_bytes().to_vec(), random];
 
-    for style in [Style::Dots, Style::Lines] {
+    for style in [Style::Dots, Style::Lines, Style::Rings] {
         for payload in &payloads {
             let symbol = encode(payload, Profile::default()).expect("payload should fit");
             let png = render_png(
@@ -100,7 +100,7 @@ fn png_roundtrip_covers_utf8_binary_boundary_and_styles() {
 #[test]
 fn logo_is_decodable_without_changing_the_payload() {
     let logo = logo_png();
-    for style in [Style::Dots, Style::Lines] {
+    for style in [Style::Dots, Style::Lines, Style::Rings] {
         let symbol = encode("logo stays in the centre".as_bytes(), Profile::default()).unwrap();
         let png = render_png(
             &symbol,
@@ -165,6 +165,10 @@ fn projective_warps_decode_from_four_locators() {
         (
             [[67., 44.], [704., 128.], [657., 718.], [95., 665.]],
             Style::Dots,
+        ),
+        (
+            [[51., 61.], [709., 76.], [684., 704.], [73., 672.]],
+            Style::Rings,
         ),
     ];
     for (quad, style) in cases {
@@ -247,10 +251,10 @@ fn seeded_rotation_scale_cases_roundtrip() {
             &symbol,
             &RenderOptions {
                 size: 384,
-                style: if case % 2 == 0 {
-                    Style::Lines
-                } else {
-                    Style::Dots
+                style: match case % 3 {
+                    0 => Style::Lines,
+                    1 => Style::Dots,
+                    _ => Style::Rings,
                 },
                 ..RenderOptions::default()
             },
@@ -592,7 +596,7 @@ fn all_twelve_profiles_decode_from_pixels_with_capacity_boundary_and_rotation() 
             let profile = Profile::new(spokes, level).unwrap();
             let payload: Vec<_> = (0..profile.capacity()).map(|i| (i * 31) as u8).collect();
             let symbol = encode(&payload, profile).unwrap();
-            for style in [Style::Dots, Style::Lines] {
+            for style in [Style::Dots, Style::Lines, Style::Rings] {
                 let options = RenderOptions {
                     size: 384,
                     style,
@@ -632,7 +636,7 @@ fn every_spoke_has_the_same_visible_inner_boundary() {
     for spokes in [36, 54, 72] {
         let profile = Profile::new(spokes, EccLevel::M).unwrap();
         for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
-            for style in [Style::Lines, Style::Dots] {
+            for style in [Style::Lines, Style::Dots, Style::Rings] {
                 let png = render_png(
                     &encode(&payload, profile).unwrap(),
                     &RenderOptions {
@@ -704,6 +708,52 @@ fn dots_keep_visible_radial_gaps() {
                         assert!(
                             brightness > 150,
                             "{spokes} dots, {size}px, spoke {spoke}, ring {ring}: {brightness}"
+                        );
+                    }
+                }
+                assert_eq!(decode_image(&png).unwrap().payload, payload);
+            }
+        }
+    }
+}
+
+#[test]
+fn rings_keep_visible_radial_gaps() {
+    use rcode::{EccLevel, Profile};
+    for spokes in [36, 54, 72] {
+        let profile = Profile::new(spokes, EccLevel::M).unwrap();
+        for payload in [Vec::new(), vec![0xa5; profile.capacity()]] {
+            for size in [384, 768] {
+                let png = render_png(
+                    &encode(&payload, profile).unwrap(),
+                    &RenderOptions {
+                        size,
+                        style: Style::Rings,
+                        ..RenderOptions::default()
+                    },
+                )
+                .unwrap();
+                let image = image::load_from_memory(&png).unwrap().to_rgba8();
+                let scale = f64::from(size) / 128.;
+                for spoke in 0..spokes {
+                    let angle = -PI / 2. + 2. * PI * spoke as f64 / spokes as f64;
+                    for ring in 0..21 {
+                        let radius = 25.75 + 1.5 * ring as f64;
+                        let (x, y) = (radius * angle.cos(), radius * angle.sin());
+                        if rcode::geometry::LOCATORS
+                            .iter()
+                            .any(|(lx, ly)| (x - lx).hypot(y - ly) < 11.)
+                        {
+                            continue;
+                        }
+                        let pixel =
+                            sample_rgba(&image, (64. + x) * scale - 0.5, (64. + y) * scale - 0.5)
+                                .unwrap();
+                        let brightness =
+                            pixel.0[..3].iter().map(|v| u32::from(*v)).sum::<u32>() / 3;
+                        assert!(
+                            brightness > 150,
+                            "{spokes} rings, spoke {spoke}, gap {ring}: {brightness}"
                         );
                     }
                 }

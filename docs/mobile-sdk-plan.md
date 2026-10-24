@@ -2,7 +2,8 @@
 
 ## 目标与边界
 
-RCode v3 的协议、定位、纠错、渲染和解码只保留一份 Rust 实现。四个相同的黑白黑
+RCode v3 的协议、定位、纠错、排版和解码只保留一份 Rust 实现。Rust 输出由圆、
+圆头线段和圆头弧组成的 RenderPlan，各业务端只调用本地画布。四个相同的黑白黑
 定位点配合四点单应变换，是当前唯一格式。Android、iOS 和
 Flutter 不重写算法，只负责构建产物、相机权限与生命周期、帧采集、坐标映射和业务
 UI。
@@ -22,7 +23,7 @@ CameraX / AVFoundation 相机适配
                  |
           稳定的 C ABI 边界
                  |
- Rust 协议、检测、纠错、编解码核心
+ Rust 协议、RenderPlan、检测、纠错、编解码核心
 ```
 
 Flutter 插件复用 Android 和 iOS 的原生相机实现，只把控制命令和扫码结果传给
@@ -85,10 +86,11 @@ Dart，不把每一帧图像通过平台通道发送到 Dart。
 ### C ABI
 
 `ffi/` 下的 `rcode-ffi` 独立 crate 依赖现有 Rust 库，不把当前仓库立即拆成多个业务
-crate。ABI 版本为 1，只暴露 C 兼容整数、指针、长度和不透明句柄：
+crate。ABI 版本为 2，只暴露 C 兼容整数、指针、长度、固定绘制指令和不透明句柄：
 
 - `rcode_abi_version()` 与 `rcode_core_version()`：返回 ABI 和核心 crate 版本。
 - `rcode_decode_luma8(...)`：同步解码一帧。
+- `rcode_encode_plan(...)`：编码并返回平台无关绘制计划；平台批量读取 operations。
 - 结果读取函数：payload、landmarks、profile、corrected bytes。
 - `rcode_result_free(...)`：由创建结果的一侧释放内存。
 - 稳定错误码；诊断文本只作为补充，不用于业务分支。
@@ -132,7 +134,8 @@ Rust panic 不得跨越 FFI 边界；输入指针、长度和整数转换必须�
 当前已完成 CameraX/AVFoundation 后置相机实现、生命周期、权限状态、手电筒、单次结果
 门控、预览坐标映射，以及 PNG/JPEG 单图解码。Android JVM 测试、Debug/Release AAR、
 lint 和双 ABI 打包均通过；Apple 6 个模拟器测试通过，其中包含当前 v3 图片的真实
-解码。由于本轮没有可用 Android 真机与 iPhone，真实相机矩阵仍是发布阻塞项。
+解码。Apple 当前共有 7 个模拟器测试，其中 RenderPlan 用例会将 CoreGraphics 绘制结果
+送回核心解码。由于本轮没有可用 Android 真机与 iPhone，真实相机矩阵仍是发布阻塞项。
 
 ## 里程碑 5：Flutter 插件（实现完成，真机验收与发布打包待完成）
 
@@ -148,8 +151,17 @@ lint 和双 ABI 打包均通过；Apple 6 个模拟器测试通过，其中包�
 
 当前插件已复用两端原生 SDK，连续相机帧不经过平台通道；仅显式调用单图解码时传一
 张图片。Dart 分析和 4 个状态/通道测试通过，Android 示例 APK 与 iOS arm64 模拟器
-App 均已构建。仓库内相对路径只用于联调，发布前仍需替换为同版本的 AAR 与 Apple
+App 均已构建，Dart 当前共有 5 个测试。仓库内相对路径只用于联调，发布前仍需替换为同版本的 AAR 与 Apple
 二进制制品，并完成两端真机验收。
+
+## RenderPlan 跨端绘制（已完成）
+
+- Rust `build_render_plan` 是三种样式几何的唯一实现；参考 PNG/SVG renderer 也消费它。
+- C ABI 批量暴露固定布局的 circle、line、arc 指令以及 viewport、Logo 区域。
+- Android Canvas、Apple CoreGraphics、Flutter CustomPainter 和 Web Canvas 均只翻译图元。
+- `rcode-wasm` 暴露编码计划、Luma8 解码和 Canvas RGBA 解码入口。
+- Apple 自动化测试已把 CoreGraphics 绘制结果送回核心并成功解码；Web Canvas 工作台
+  也完成生成后回读。真实相机发布门槛仍保持不变。
 
 ## 发布与维护
 
@@ -166,7 +178,7 @@ App 均已构建。仓库内相对路径只用于联调，发布前仍需替换�
 
 - 多码同时识别与追踪。
 - 自动变焦和基于 landmarks 的持续跟踪。
-- Web/WASM 相机版。
+- Web `getUserMedia` 相机 UI、Worker 调度和 npm 发布包装。
 - 云端扫码服务。
 - 码内容签名、加密或业务真实性验证。
 - 为减少一次灰度打包复制而进行的复杂零拷贝重构。

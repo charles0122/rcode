@@ -3,7 +3,9 @@ use std::io::{Cursor, Read};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use rcode::{EccLevel, Profile, RenderOptions, Style, encode, render_png, render_svg};
+use rcode::{
+    DrawOperation, EccLevel, Paint, Profile, RenderPlan, Style, build_render_plan, encode,
+};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
@@ -110,12 +112,15 @@ fn handle_encode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
         .transpose()
         .map_err(|_| json_error(400, "foreground must be a six-digit hexadecimal color"))?
         .unwrap_or([0x11, 0x18, 0x27]);
+    if contrast_against_white(foreground) < 7.0 {
+        return Err(json_error(400, "foreground contrast must be at least 7:1"));
+    }
     let style = input
         .style
         .as_deref()
         .map(parse_style)
         .transpose()
-        .map_err(|_| json_error(400, "style must be `lines` or `dots`"))?
+        .map_err(|_| json_error(400, "style must be `lines`, `dots` or `rings`"))?
         .unwrap_or(Style::Lines);
     let logo = input
         .logo_base64
@@ -144,21 +149,14 @@ fn handle_encode(request: &mut Request) -> Result<HttpResponse, HttpResponse> {
             .map_err(|e: rcode::Error| json_error(400, &e.to_string()))?,
     )
     .map_err(|e| json_error(400, &e.to_string()))?;
-    let options = RenderOptions {
-        size,
-        foreground,
-        style,
-        logo,
-    };
     let code =
         encode(text.as_bytes(), profile).map_err(|error| json_error(400, &error.to_string()))?;
-    let png = render_png(&code, &options).map_err(|error| json_error(400, &error.to_string()))?;
-    let svg = render_svg(&code, &options).map_err(|error| json_error(400, &error.to_string()))?;
+    let plan =
+        build_render_plan(&code, style).map_err(|error| json_error(400, &error.to_string()))?;
     json_response(
         200,
         &EncodeResponse {
-            png_base64: BASE64.encode(png),
-            svg,
+            plan: PlanResponse::from(plan),
             byte_length: text.len(),
             profile: ProfileInfo::from(profile),
         },
@@ -272,6 +270,7 @@ fn parse_style(value: &str) -> Result<Style, ()> {
     match value.to_ascii_lowercase().as_str() {
         "dots" => Ok(Style::Dots),
         "lines" => Ok(Style::Lines),
+        "rings" => Ok(Style::Rings),
         _ => Err(()),
     }
 }
@@ -299,6 +298,20 @@ fn hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
+fn contrast_against_white(color: [u8; 3]) -> f64 {
+    let linear = |component: u8| {
+        let value = f64::from(component) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let luminance =
+        0.2126 * linear(color[0]) + 0.7152 * linear(color[1]) + 0.0722 * linear(color[2]);
+    1.05 / (luminance + 0.05)
+}
+
 #[derive(Debug, Deserialize)]
 struct EncodeRequest {
     spokes: Option<usize>,
@@ -313,9 +326,83 @@ struct EncodeRequest {
 #[derive(Debug, Serialize)]
 struct EncodeResponse {
     profile: ProfileInfo,
-    png_base64: String,
-    svg: String,
+    plan: PlanResponse,
     byte_length: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct PlanResponse {
+    version: u32,
+    viewport: f64,
+    logo_region: [f64; 3],
+    operations: Vec<PlanOperationResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct PlanOperationResponse {
+    kind: &'static str,
+    paint: &'static str,
+    values: [f64; 6],
+}
+
+impl From<RenderPlan> for PlanResponse {
+    fn from(plan: RenderPlan) -> Self {
+        Self {
+            version: plan.version,
+            viewport: plan.viewport,
+            logo_region: [plan.logo_region.0, plan.logo_region.1, plan.logo_region.2],
+            operations: plan
+                .operations
+                .into_iter()
+                .map(PlanOperationResponse::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<DrawOperation> for PlanOperationResponse {
+    fn from(operation: DrawOperation) -> Self {
+        let paint = match operation {
+            DrawOperation::Circle { paint, .. }
+            | DrawOperation::Line { paint, .. }
+            | DrawOperation::Arc { paint, .. } => match paint {
+                Paint::Background => "background",
+                Paint::Foreground => "foreground",
+            },
+        };
+        match operation {
+            DrawOperation::Circle { cx, cy, radius, .. } => Self {
+                kind: "circle",
+                paint,
+                values: [cx, cy, radius, 0.0, 0.0, 0.0],
+            },
+            DrawOperation::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                width,
+                ..
+            } => Self {
+                kind: "line",
+                paint,
+                values: [x1, y1, x2, y2, width, 0.0],
+            },
+            DrawOperation::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                sweep_angle,
+                width,
+                ..
+            } => Self {
+                kind: "arc",
+                paint,
+                values: [cx, cy, radius, start_angle, sweep_angle, width],
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

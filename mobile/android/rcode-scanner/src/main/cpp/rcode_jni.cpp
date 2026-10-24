@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <vector>
 #include "rcode.h"
 
 namespace {
@@ -9,6 +10,11 @@ namespace {
 struct ResultGuard {
     RCodeResult *value = nullptr;
     ~ResultGuard() { rcode_result_free(value); }
+};
+
+struct PlanGuard {
+    RCodePlan *value = nullptr;
+    ~PlanGuard() { rcode_plan_free(value); }
 };
 
 jobject make_response(JNIEnv *env, jint status, jbyteArray payload, jint corrected,
@@ -35,6 +41,35 @@ jobject failure(JNIEnv *env, uint32_t status) {
                                      landmarks, 0, 0, 0, 0);
     env->DeleteLocalRef(payload);
     env->DeleteLocalRef(landmarks);
+    return response;
+}
+
+jobject make_plan_response(JNIEnv *env, jint status, jint version, jdouble viewport,
+                           jdouble logo_x, jdouble logo_y, jdouble logo_radius,
+                           jintArray kinds, jintArray paints, jdoubleArray values) {
+    jclass type = env->FindClass("com/rcode/scanner/NativePlanResponse");
+    if (type == nullptr) return nullptr;
+    jmethodID constructor = env->GetMethodID(type, "<init>", "(IIDDDD[I[I[D)V");
+    if (constructor == nullptr) {
+        env->DeleteLocalRef(type);
+        return nullptr;
+    }
+    jobject response = env->NewObject(type, constructor, status, version, viewport, logo_x,
+                                      logo_y, logo_radius, kinds, paints, values);
+    env->DeleteLocalRef(type);
+    return response;
+}
+
+jobject plan_failure(JNIEnv *env, uint32_t status) {
+    jintArray kinds = env->NewIntArray(0);
+    jintArray paints = env->NewIntArray(0);
+    jdoubleArray values = env->NewDoubleArray(0);
+    if (kinds == nullptr || paints == nullptr || values == nullptr) return nullptr;
+    jobject response = make_plan_response(env, static_cast<jint>(status), 0, 0, 0, 0, 0,
+                                          kinds, paints, values);
+    env->DeleteLocalRef(kinds);
+    env->DeleteLocalRef(paints);
+    env->DeleteLocalRef(values);
     return response;
 }
 
@@ -99,5 +134,64 @@ Java_com_rcode_scanner_NativeBridge_nativeDecodeLuma8(
         static_cast<jint>(spokes), static_cast<jint>(ecc_id));
     env->DeleteLocalRef(payload);
     env->DeleteLocalRef(landmarks);
+    return response;
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_rcode_scanner_NativeBridge_nativeEncodePlan(
+    JNIEnv *env, jobject /* receiver */, jbyteArray payload, jint spokes,
+    jint ecc_id, jint style_id) {
+    if (payload == nullptr || spokes <= 0 || ecc_id < 0 || style_id < 0) {
+        return plan_failure(env, RCODE_INVALID_ARGUMENT);
+    }
+    const jsize payload_length = env->GetArrayLength(payload);
+    std::vector<uint8_t> bytes(static_cast<size_t>(payload_length));
+    if (payload_length > 0) {
+        env->GetByteArrayRegion(payload, 0, payload_length,
+                               reinterpret_cast<jbyte *>(bytes.data()));
+        if (env->ExceptionCheck()) return nullptr;
+    }
+
+    PlanGuard plan;
+    const uint32_t status = rcode_encode_plan(
+        bytes.data(), bytes.size(), static_cast<uint32_t>(spokes),
+        static_cast<uint32_t>(ecc_id), static_cast<uint32_t>(style_id), &plan.value);
+    if (status != RCODE_OK) return plan_failure(env, status);
+
+    uint32_t version = 0;
+    double viewport = 0, logo_x = 0, logo_y = 0, logo_radius = 0;
+    const RCodeDrawOperation *operations = nullptr;
+    size_t count = 0;
+    if (rcode_plan_version(plan.value, &version) != RCODE_OK ||
+        rcode_plan_metadata(plan.value, &viewport, &logo_x, &logo_y, &logo_radius) != RCODE_OK ||
+        rcode_plan_operations(plan.value, &operations, &count) != RCODE_OK ||
+        count > static_cast<size_t>(std::numeric_limits<jsize>::max()) ||
+        count > static_cast<size_t>(std::numeric_limits<jsize>::max()) / 6) {
+        return plan_failure(env, RCODE_INTERNAL_PANIC);
+    }
+
+    std::vector<jint> kinds(count), paints(count);
+    std::vector<jdouble> values(count * 6);
+    for (size_t index = 0; index < count; ++index) {
+        kinds[index] = static_cast<jint>(operations[index].kind);
+        paints[index] = static_cast<jint>(operations[index].paint);
+        for (size_t value = 0; value < 6; ++value) {
+            values[index * 6 + value] = operations[index].values[value];
+        }
+    }
+
+    jintArray kind_array = env->NewIntArray(static_cast<jsize>(count));
+    jintArray paint_array = env->NewIntArray(static_cast<jsize>(count));
+    jdoubleArray value_array = env->NewDoubleArray(static_cast<jsize>(count * 6));
+    if (kind_array == nullptr || paint_array == nullptr || value_array == nullptr) return nullptr;
+    env->SetIntArrayRegion(kind_array, 0, static_cast<jsize>(count), kinds.data());
+    env->SetIntArrayRegion(paint_array, 0, static_cast<jsize>(count), paints.data());
+    env->SetDoubleArrayRegion(value_array, 0, static_cast<jsize>(count * 6), values.data());
+    if (env->ExceptionCheck()) return nullptr;
+    jobject response = make_plan_response(env, RCODE_OK, static_cast<jint>(version), viewport, logo_x, logo_y,
+                                          logo_radius, kind_array, paint_array, value_array);
+    env->DeleteLocalRef(kind_array);
+    env->DeleteLocalRef(paint_array);
+    env->DeleteLocalRef(value_array);
     return response;
 }

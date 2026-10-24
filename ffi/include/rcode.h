@@ -9,6 +9,15 @@ extern "C" {
 #endif
 
 typedef struct RCodeResult RCodeResult;
+typedef struct RCodePlan RCodePlan;
+
+typedef struct RCodeDrawOperation {
+    /* circle=0, round line=1, round arc=2 */
+    uint32_t kind;
+    /* background=0, foreground=1 */
+    uint32_t paint;
+    double values[6];
+} RCodeDrawOperation;
 
 enum RCodeStatus {
     RCODE_OK = 0,
@@ -27,6 +36,20 @@ const char *rcode_status_message(uint32_t status);
 uint32_t rcode_decode_luma8(const uint8_t *pixels, size_t pixels_len,
                             uint32_t width, uint32_t height, size_t row_stride,
                             RCodeResult **out_result);
+
+/* style ids are lines=0, dots=1, rings=2. */
+uint32_t rcode_encode_plan(const uint8_t *payload, size_t payload_len,
+                           uint32_t spokes, uint32_t ecc_id, uint32_t style_id,
+                           RCodePlan **out_plan);
+uint32_t rcode_plan_version(const RCodePlan *plan, uint32_t *out_version);
+uint32_t rcode_plan_metadata(const RCodePlan *plan, double *out_viewport,
+                             double *out_logo_x, double *out_logo_y,
+                             double *out_logo_radius);
+/* Borrowed operations remain valid only until rcode_plan_free(plan). */
+uint32_t rcode_plan_operations(const RCodePlan *plan,
+                               const RCodeDrawOperation **out_operations,
+                               size_t *out_count);
+void rcode_plan_free(RCodePlan *plan);
 
 /* ECC ids are L=0, M=1, Q=2, H=3. */
 /* Borrowed payload bytes remain valid only until rcode_result_free(result). */
