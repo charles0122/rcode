@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust WASM target
@@ -31,7 +31,7 @@ jobs:
         run: cargo test --workspace --locked
       - name: Build static workbench
         run: bash scripts/build-web.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: Install smoke-test browser
