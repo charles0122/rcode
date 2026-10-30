@@ -22,6 +22,36 @@ cargo run --release -- serve --port 8788
 
 编码支持 `--spokes 36|54|72`、`--ecc L|M|Q|H`（默认 72 线 M 档），还支持 `--size 768`、`--foreground '#173B32'`、`--logo logo.png`。解码二进制内容时命令行输出 Base64。
 
+
+## 静态 Web / GitHub Pages
+
+静态版使用 WASM 与 Web Worker 在浏览器内完成编解码，文本和图片不上传服务器。
+支持编码预览、PNG/SVG 下载、图片解码和耐受实验，无需运行 Rust 后端。
+
+```sh
+rustup target add wasm32-unknown-unknown
+# CLI 版本需与 Cargo.lock 中的 wasm-bindgen 一致
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+bash scripts/build-web.sh
+python3 -m http.server 8788 --directory dist/web
+```
+
+打开 http://localhost:8788 。产物在 `dist/web/`，可部署到域名根目录或仓库子目录。
+需要支持 WASM、模块 Worker、OffscreenCanvas 和 createImageBitmap 的现代浏览器。
+
+仓库 Settings → Pages → Build and deployment → Source 选择 **GitHub Actions**。
+`.github/workflows/pages.yml` 在 PR 中构建并测试，在推送 `main` 或手动运行时部署。
+默认访问地址为 https://charles0122.github.io/rcode/ 。
+
+浏览器冒烟测试（先构建）：
+
+```sh
+npm install --no-save --package-lock=false playwright@1.58.2
+npx playwright install chromium
+node scripts/test-web.cjs
+```
+
+
 ## 库
 
 ```rust

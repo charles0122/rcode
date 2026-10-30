@@ -175,6 +175,7 @@
   }
 
   async function requestJson(path, options) {
+    if (window.rcodeRequest) return window.rcodeRequest(path, options);
     let response;
     try {
       response = await fetch(path, options);

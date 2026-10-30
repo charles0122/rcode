@@ -30,6 +30,28 @@ struct Decoded {
     ecc: u32,
 }
 
+/// Browser profile choices use the same capacity calculations as native clients.
+#[wasm_bindgen]
+pub fn profiles_json() -> String {
+    let profiles: Vec<_> = [36, 54, 72]
+        .into_iter()
+        .flat_map(|spokes| {
+            EccLevel::ALL.into_iter().map(move |level| {
+                let profile = Profile::new(spokes, level).unwrap();
+                serde_json::json!({
+                    "spokes": spokes,
+                    "ecc": level.to_string(),
+                    "capacity": profile.capacity(),
+                    "correction_percent": level.percent(),
+                    "correctable_bytes": profile.correctable_bytes(),
+                    "parity_bytes": profile.parity_bytes(),
+                })
+            })
+        })
+        .collect();
+    serde_json::to_string(&profiles).unwrap()
+}
+
 /// Encode payload bytes into JSON drawing commands. No image format is produced.
 #[wasm_bindgen]
 pub fn encode_plan_json(

@@ -1,6 +1,8 @@
 /target/
 /artifacts/
 /dist/core/
+/dist/web/
+/node_modules/
 /mobile/apple/.build/
 /mobile/android/.gradle/
 /mobile/android/**/build/
